@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#11151b">
+<title>PumpDeck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one-column gym console — live readout on top, controls below, tools and log folded away. Dark-first for a bright gym and a dim garage alike. */
+:root {
+  --bg: #11151b;
+  --panel: #1a2029;
+  --panel-2: #222a35;
+  --line: #2c3542;
+  --fg: #e7ecf2;
+  --muted: #8994a3;
+  --accent: #ff7a2f;      /* load / resistance */
+  --accent-ink: #1a0d04;
+  --good: #3ecf8e;
+  --warn: #f5b83d;
+  --bad: #ff5d5d;
+  --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --r: 14px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 16px/1.45 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: calc(env(safe-area-inset-top, 0px) + 12px) calc(env(safe-area-inset-bottom, 0px) + 32px);
+  -webkit-tap-highlight-color: transparent;
+}
+[hidden] { display: none !important; }
+main { max-width: 640px; margin: 0 auto; display: grid; gap: 16px; }
+h1, h2 { font-family: var(--font-display); font-weight: 700; letter-spacing: .02em; margin: 0; text-wrap: balance; }
+h1 { font-size: 1.7rem; }
+h2 { font-size: 1.05rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 600; }
+button, input, select { font: inherit; color: inherit; }
+button {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 14px; min-height: 44px; cursor: pointer; font-weight: 600;
+}
+button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: .4; cursor: not-allowed; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.danger { color: var(--bad); }
+.num { font-variant-numeric: tabular-nums; }
+
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand small { color: var(--muted); font-size: .8rem; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: .78rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding: 4px 10px; border-radius: 99px; background: var(--panel-2); color: var(--muted); }
+.pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.pill.on { color: var(--good); }
+.pill.demo { color: var(--warn); }
+
+.notice { background: var(--panel); border: 1px solid var(--warn); border-radius: var(--r); padding: 14px 16px; font-size: .95rem; }
+.notice strong { color: var(--warn); }
+
+section.card { background: var(--panel); border-radius: var(--r); padding: 16px; display: grid; gap: 14px; }
+
+/* Pumps */
+.pumps { display: grid; gap: 10px; }
+.pump { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; background: var(--panel-2); border-radius: 10px; padding: 10px 12px; }
+.pump .name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.pump .meta { grid-column: 1 / -1; color: var(--muted); font-size: .85rem; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.batt { font-family: var(--font-display); font-size: 1.1rem; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; }
+.row > button { flex: 1 1 140px; }
+
+/* Readout */
+.readout { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.stat { background: var(--panel-2); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.stat .k { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.stat .v { font-family: var(--font-display); font-weight: 600; font-size: 1.9rem; line-height: 1.1; }
+.stat .u { font-size: .85rem; color: var(--muted); margin-left: 2px; }
+
+.load { display: grid; grid-template-columns: 64px 1fr 64px; align-items: center; gap: 10px; }
+.load button { font-family: var(--font-display); font-size: 2rem; min-height: 64px; padding: 0; }
+.load .big { text-align: center; }
+.load .big .v { font-family: var(--font-display); font-weight: 700; font-size: clamp(4rem, 22vw, 6.5rem); line-height: .9; color: var(--accent); }
+.load .big .u { font-family: var(--font-display); font-size: 1.4rem; color: var(--muted); }
+.load .big .sub { font-size: .8rem; color: var(--muted); }
+input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; }
+.scale { display: flex; justify-content: space-between; font-size: .75rem; color: var(--muted); }
+
+/* Modes */
+.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.modes button { min-height: 56px; font-family: var(--font-display); font-size: 1.05rem; letter-spacing: .03em; padding: 6px; line-height: 1.1; }
+.modes button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.modes button small { display: block; font-family: var(--font-body); font-size: .68rem; font-weight: 500; opacity: .75; }
+.tune { display: grid; gap: 4px; }
+.tune label { display: flex; justify-content: space-between; font-weight: 600; }
+.hint { font-size: .85rem; color: var(--muted); margin: 0; }
+
+/* Workout */
+.clock { font-family: var(--font-display); font-weight: 700; font-size: 3rem; line-height: 1; }
+.wk-head { display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; }
+canvas { width: 100%; height: 140px; display: block; background: var(--panel-2); border-radius: 10px; }
+
+/* History */
+.hist { display: grid; gap: 8px; }
+.hist .item { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; background: var(--panel-2); border-radius: 10px; padding: 10px 12px; font-size: .92rem; }
+.hist .item .d { color: var(--muted); font-size: .8rem; }
+.hist .item .big { font-family: var(--font-display); font-size: 1.3rem; text-align: right; }
+.empty { color: var(--muted); font-size: .92rem; margin: 0; }
+
+details { background: var(--panel); border-radius: var(--r); padding: 4px 16px; }
+details[open] { padding-bottom: 16px; }
+summary { cursor: pointer; padding: 12px 0; font-family: var(--font-display); font-size: 1.05rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 600; }
+details .inner { display: grid; gap: 12px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; min-width: 64px; }
+.seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: .88rem; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--font-mono); font-size: .82rem; overflow-wrap: anywhere; min-width: 0; }
+.log { font-family: var(--font-mono); font-size: .74rem; background: #0b0e12; border-radius: 10px; padding: 10px; height: 220px; overflow: auto; white-space: pre; }
+.log .tx { color: var(--accent); }
+.log .rx { color: var(--good); }
+.log .er { color: var(--bad); }
+.raw { display: flex; gap: 8px; }
+.raw input { flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font-family: var(--font-mono); font-size: .85rem; }
+
+/* In-page confirm */
+.confirm { background: var(--panel-2); border: 1px solid var(--bad); border-radius: 10px; padding: 12px; display: grid; gap: 10px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 99px; font-weight: 600; font-size: .9rem; max-width: calc(100% - 32px); z-index: 20; }
+
+@media (max-width: 380px) {
+  .readout { grid-template-columns: 1fr 1fr; }
+  .modes { grid-template-columns: repeat(2, 1fr); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .load .big .v { transition: color .2s; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div class="brand"><h1>PumpDeck</h1><small>for TT BOT / Go Tone pumps</small></div>
+    <span id="connPill" class="pill">Offline</span>
+  </header>
+
+  <div id="noBt" class="notice" hidden>
+    <strong>Bluetooth isn't available here.</strong> Open this page over HTTPS in Chrome on Android (or the Bluefy browser on iPhone), with Bluetooth and location switched on. You can still try the controls with <em>Demo pump</em>.
+  </div>
+
+  <section class="card" aria-labelledby="h-pumps">
+    <h2 id="h-pumps">Pumps</h2>
+    <div id="pumps" class="pumps"><p class="empty">No pump connected. Switch the pump on, then tap <em>Connect pump</em>. Connect a second one for two-handed training.</p></div>
+    <div class="row">
+      <button id="btnConnect" class="primary" type="button">Connect pump</button>
+      <button id="btnDemo" type="button">Demo pump</button>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-load">
+    <h2 id="h-load">Resistance</h2>
+    <div class="load">
+      <button id="wMinus" type="button" aria-label="Decrease resistance">−</button>
+      <div class="big"><span id="wVal" class="v num">–</span><span id="wUnit" class="u">kg</span><div id="wSub" class="sub">set on pump: –</div></div>
+      <button id="wPlus" type="button" aria-label="Increase resistance">+</button>
+    </div>
+    <input id="wSlider" type="range" min="5" max="30" step="1" value="5" aria-label="Resistance">
+    <div class="scale"><span id="wMin" class="num">5</span><span id="wMax" class="num">30</span></div>
+    <div class="readout">
+      <div class="stat"><div class="k">Reps</div><div><span id="rReps" class="v num">0</span></div></div>
+      <div class="stat"><div class="k">Speed</div><div><span id="rSpeed" class="v num">0.0</span><span class="u">m/s</span></div></div>
+      <div class="stat"><div class="k">Rope out</div><div><span id="rLen" class="v num">0</span><span class="u">cm</span></div></div>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-mode">
+    <h2 id="h-mode">Mode</h2>
+    <div id="modes" class="modes"></div>
+    <div id="tune" class="tune" hidden>
+      <label for="tSlider"><span id="tLabel">Eccentric load</span><span id="tVal" class="num">0%</span></label>
+      <input id="tSlider" type="range" min="0" max="50" step="1" value="0">
+      <p id="tHint" class="hint"></p>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-wk">
+    <div class="wk-head">
+      <div><h2 id="h-wk">Workout</h2><div id="wkClock" class="clock num">0:00</div></div>
+      <div class="readout" style="grid-template-columns: repeat(2, minmax(84px, 1fr));">
+        <div class="stat"><div class="k">Volume</div><div><span id="wkVol" class="v num" style="font-size:1.4rem">0</span><span id="wkVolU" class="u">kg</span></div></div>
+        <div class="stat"><div class="k">Energy*</div><div><span id="wkKcal" class="v num" style="font-size:1.4rem">0</span><span class="u">kcal</span></div></div>
+      </div>
+    </div>
+    <canvas id="chart" aria-label="Peak speed of each rep"></canvas>
+    <div class="row">
+      <button id="wkStart" class="primary" type="button">Start</button>
+      <button id="wkFinish" type="button" disabled>Finish &amp; save</button>
+    </div>
+    <p class="hint">Bars show each rep's peak speed. *Energy is a rough estimate from load × rope travel at 25% efficiency.</p>
+  </section>
+
+  <section class="card" aria-labelledby="h-hist">
+    <h2 id="h-hist">History</h2>
+    <div id="hist" class="hist"></div>
+    <div class="row">
+      <button id="histExport" type="button">Export JSON</button>
+      <button id="histClear" class="danger" type="button">Clear history</button>
+    </div>
+    <div id="histConfirm" class="confirm" hidden>
+      <span>Delete all saved workouts on this phone?</span>
+      <div class="row"><button id="histYes" class="danger" type="button">Delete</button><button id="histNo" type="button">Keep</button></div>
+    </div>
+  </section>
+
+  <details>
+    <summary>Pump settings</summary>
+    <div class="inner">
+      <div class="row" style="align-items:center; justify-content:space-between">
+        <span>Units</span>
+        <div class="seg" role="group" aria-label="Units"><button id="uKg" type="button" aria-pressed="true">kg</button><button id="uLb" type="button" aria-pressed="false">lb</button></div>
+      </div>
+      <div class="row">
+        <button id="bResetReps" type="button">Reset rep counter</button>
+        <button id="bInfo" type="button">Read pump info</button>
+      </div>
+      <div class="row">
+        <button id="bLenSet" type="button">Set rope start here</button>
+        <button id="bLenReset" type="button">Restore default rope start</button>
+      </div>
+      <button id="bPower" class="danger" type="button">Switch pumps off</button>
+      <div id="powerConfirm" class="confirm" hidden>
+        <span>Switch off all connected pumps?</span>
+        <div class="row"><button id="powerYes" class="danger" type="button">Switch off</button><button id="powerNo" type="button">Cancel</button></div>
+      </div>
+      <dl id="info" class="kv"></dl>
+    </div>
+  </details>
+
+  <details>
+    <summary>Protocol log</summary>
+    <div class="inner">
+      <div id="log" class="log" aria-live="off"></div>
+      <div class="raw">
+        <input id="rawIn" placeholder="5A2120 1000  (CRC added for you)" autocomplete="off" spellcheck="false">
+        <button id="rawSend" type="button">Send</button>
+      </div>
+      <p class="hint">Type a frame without its checksum, e.g. <code>5A21231000</code> asks for the weight limits. Frames go to every connected pump.</p>
+    </div>
+  </details>
+</main>
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script>
+'use strict';
+/* ================= Protocol (from TT BOT com.tao.sport, BlueDataUtils / BlueServiceV1/V2) =================
+   Frame: 5A 21 <cmd hi> <cmd lo> <len> <data…> <crc16 hi> <crc16 lo>
+   CRC:   CRC-16/XMODEM (poly 0x1021, init 0) over every byte before it.
+   GATT:  service = one of SERVICES (depends on model), write = FFE1, notify = FFE2.
+   The pump pushes a status frame (cmd 0110) by itself; nothing needs polling.            */
+const SERVICES = {
+  '54430001-0354-432d-4a53-2d5031fbffff': 'TC-JS-P1',
+  '0000e0ff-3c17-d293-8e48-14fe2e4da212': 'TC-JS-P1-FF',
+  '54430001-0354-432d-4a53-2d5032fbffff': 'TC-JS-P2',
+  '54430002-0354-432d-4a53-2d5033fbffff': 'TC-JS-P3',
+};
+const CH_WRITE  = '0000ffe1-0000-1000-8000-00805f9b34fb';
+const CH_NOTIFY = '0000ffe2-0000-1000-8000-00805f9b34fb';
+
+const CMD = {
+  STATUS: 0x0110, WEIGHT: 0x0210, SPEED: 0x0310, MODE: 0x0610, ECC: 0x0710, ROPE_START: 0x0910,
+  SN: 0x0A10, TEMP: 0x0B10, FW: 0x0C10, CONC: 0x0D10, CHAIN: 0x0E10,
+  REPS_CLEAR: 0x1610, LEN_CLEAR: 0x1710, POWER_OFF: 0x1810, PAUSE: 0x1910, START: 0x2010,
+  UNIT: 0x2210, LIMITS: 0x2310,
+};
+const MODES = [
+  { id: 1, name: 'Standard',     sub: 'constant load' },
+  { id: 2, name: 'Eccentric',    sub: 'extra on return', tune: CMD.ECC,   key: 'ecc',   label: 'Eccentric load', hint: 'Adds resistance while the rope goes back in. 0–50%.' },
+  { id: 3, name: 'Concentric',   sub: 'extra on pull',   tune: CMD.CONC,  key: 'conc',  label: 'Concentric load', hint: 'Adds resistance while you pull out. 0–50%.' },
+  { id: 4, name: 'Rowing',       sub: 'speed based',     tune: CMD.SPEED, key: 'speed', label: 'Rowing level', hint: 'Levels 1–10.', min: 1, max: 10, pct: false },
+  { id: 5, name: 'Chain',        sub: 'load rises with pull', tune: CMD.CHAIN, key: 'chain', label: 'Chain weight', hint: 'Share of load that builds up as the rope extends, like lifting chains. 0–50%.' },
+  { id: 6, name: 'Power saving', sub: 'eco' },
+];
+
+function crc16(bytes) {
+  let c = 0;
+  for (const b of bytes) {
+    c ^= b << 8;
+    for (let i = 0; i < 8; i++) c = (c & 0x8000) ? ((c << 1) ^ 0x1021) & 0xffff : (c << 1) & 0xffff;
+  }
+  return c;
+}
+function frame(cmd, data = []) {
+  const body = [0x5A, 0x21, (cmd >> 8) & 0xff, cmd & 0xff, data.length, ...data];
+  const c = crc16(body);
+  return new Uint8Array([...body, (c >> 8) & 0xff, c & 0xff]);
+}
+const u16 = v => [(v >> 8) & 0xff, v & 0xff];
+const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join(' ').toUpperCase();
+const SPOOL_MM = 35 * Math.PI;           // app: length * π * 35 / 50  (50 counts per turn)
+const countsToCm = n => n * SPOOL_MM / 50 / 10;
+const speedToMs  = n => n * 35 * Math.PI / 300000;   // app formula
+
+function parseStatus(b) {
+  if (b.length < 37) return null;
+  const U = i => (b[i] << 8) | b[i + 1];
+  let current = U(7); if (current >= 0x8000) current -= 0x10000;
+  return {
+    voltage: U(5), current, battery: b[9], temp: b[10],
+    mode: b[21], weight: U(22), speed: U(24), length: U(26),
+    ecc: b[28], conc: b[29], chain: b[30],
+    pullLength: U(31), reps: U(33), way: b[35], unitKg: b[36] === 1,
+  };
+}
+
+/* ================= State ================= */
+const S = {
+  pumps: [],           // {id, name, model, demo, write(bytes), status, fw, sn, limits}
+  unitKg: true,
+  limits: { minKg: 5, maxKg: 30, minLb: 11, maxLb: 66 },
+  target: null,        // weight user wants
+  mode: 1,
+  tune: { ecc: 0, conc: 0, chain: 0, speed: 1 },
+  wk: { running: false, started: 0, elapsed: 0, baseReps: 0, reps: [], lastReps: 0, peak: 0, work: 0 },
+};
+const $ = id => document.getElementById(id);
+
+/* ================= Log & toast ================= */
+const logEl = $('log');
+function log(kind, text) {
+  const line = document.createElement('div');
+  line.className = kind;
+  const t = new Date().toTimeString().slice(0, 8);
+  line.textContent = `${t} ${kind.toUpperCase()} ${text}`;
+  logEl.appendChild(line);
+  while (logEl.childNodes.length > 400) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+let toastT;
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 2200);
+}
+
+/* ================= Transport ================= */
+async function sendAll(bytes, quiet) {
+  if (!S.pumps.length) { toast('Connect a pump first'); return; }
+  if (!quiet) log('tx', hex(bytes));
+  for (const p of S.pumps) {
+    try { await p.write(bytes); } catch (e) { log('er', `${p.name}: ${e.message}`); }
+  }
+}
+const send = (cmd, data, quiet) => sendAll(frame(cmd, data), quiet);
+
+function makeReader(pump) {
+  let buf = [];
+  return chunk => {
+    buf.push(...chunk);
+    while (buf.length >= 7) {
+      const s = buf.indexOf(0x5A);
+      if (s < 0) { buf = []; return; }
+      if (s > 0) buf = buf.slice(s);
+      if (buf.length < 5) return;
+      const total = 5 + buf[4] + 2;
+      if (buf.length < total) {
+        if (total > 256) { buf.shift(); continue; }
+        return;
+      }
+      const f = buf.slice(0, total);
+      const ok = crc16(f.slice(0, -2)) === ((f[total - 2] << 8) | f[total - 1]);
+      if (!ok && chunk.length !== total) { buf.shift(); continue; } // resync
+      buf = buf.slice(total);
+      handleFrame(pump, Uint8Array.from(f), ok);
+    }
+  };
+}
+
+let lastStatusLog = 0;
+function handleFrame(p, f, crcOk) {
+  const cmd = (f[2] << 8) | f[3];
+  if (cmd !== CMD.STATUS || Date.now() - lastStatusLog > 3000) {
+    log('rx', `${p.name}: ${hex(f)}${crcOk ? '' : '  (checksum mismatch)'}`);
+    if (cmd === CMD.STATUS) lastStatusLog = Date.now();
+  }
+  switch (cmd) {
+    case CMD.STATUS: {
+      const st = parseStatus(f); if (!st) return;
+      p.status = st; onStatus(p); break;
+    }
+    case CMD.FW: p.fw = `${(f[5] << 8) | f[6]}.${(f[7] << 8) | f[8]}.${(f[9] << 8) | f[10]}`; renderPumps(); renderInfo(); break;
+    case CMD.LIMITS:
+      if (f[4] === 4) {
+        S.limits = { minKg: f[5], minLb: f[6], maxKg: f[7], maxLb: f[8] };
+        p.limits = S.limits; renderLoad(); renderInfo();
+      }
+      break;
+    case CMD.SN: p.sn = String.fromCharCode(...f.slice(5, 5 + f[4]).filter(c => c >= 32 && c < 127)) || hex(f.slice(5, 5 + f[4])); renderInfo(); break;
+    case CMD.TEMP: renderInfo(); break;
+  }
+}
+
+/* ================= Web Bluetooth ================= */
+async function connectReal() {
+  if (!navigator.bluetooth) { $('noBt').hidden = false; return; }
+  let dev;
+  try {
+    dev = await navigator.bluetooth.requestDevice({
+      filters: [...Object.keys(SERVICES).map(s => ({ services: [s] })), { name: 'Realtek' }],
+      optionalServices: Object.keys(SERVICES),
+    });
+  } catch (e) { if (e.name !== 'NotFoundError') toast(e.message); return; }
+  if (S.pumps.some(p => p.id === dev.id)) { toast('That pump is already connected'); return; }
+  toast('Connecting…');
+  try {
+    const server = await dev.gatt.connect();
+    let svc, model;
+    for (const [uuid, m] of Object.entries(SERVICES)) {
+      try { svc = await server.getPrimaryService(uuid); model = m; break; } catch (_) {}
+    }
+    if (!svc) throw new Error('This device does not offer the pump service');
+    const wch = await svc.getCharacteristic(CH_WRITE);
+    const nch = await svc.getCharacteristic(CH_NOTIFY);
+    const pump = { id: dev.id, name: dev.name || model, model, demo: false, dev };
+    let q = Promise.resolve();
+    pump.write = bytes => (q = q.then(() =>
+      wch.properties.writeWithoutResponse && !wch.properties.write
+        ? wch.writeValueWithoutResponse(bytes) : wch.writeValue(bytes)));
+    const read = makeReader(pump);
+    nch.addEventListener('characteristicvaluechanged', e => read(new Uint8Array(e.target.value.buffer)));
+    await nch.startNotifications();
+    dev.addEventListener('gattserverdisconnected', () => dropPump(pump, 'disconnected'));
+    addPump(pump);
+  } catch (e) {
+    log('er', e.message); toast(`Couldn't connect: ${e.message}`);
+    try { dev.gatt.disconnect(); } catch (_) {}
+  }
+}
+
+function addPump(p) {
+  S.pumps.push(p);
+  log('rx', `${p.name} connected (${p.model})`);
+  renderPumps();
+  // same follow-up the official app sends: firmware version, then weight limits
+  setTimeout(() => p.write(frame(CMD.FW)), 200);
+  setTimeout(() => p.write(frame(CMD.LIMITS)), 400);
+  toast(`${p.name} connected`);
+}
+function dropPump(p, why) {
+  S.pumps = S.pumps.filter(x => x !== p);
+  log('er', `${p.name} ${why}`);
+  if (p.timer) clearInterval(p.timer);
+  renderPumps(); renderLoad();
+}
+function disconnect(p) {
+  if (p.demo) dropPump(p, 'removed');
+  else try { p.dev.gatt.disconnect(); } catch (_) { dropPump(p, 'removed'); }
+}
+
+/* ================= Demo pump (feeds fake frames through the same parser) ================= */
+function connectDemo() {
+  if (S.pumps.some(p => p.demo)) { toast('Demo pump already running'); return; }
+  const sim = { weight: 10, mode: 1, ecc: 0, conc: 0, chain: 0, unitKg: true, reps: 0, counting: true, t: 0, len: 0, lastPhase: 0, batt: 87 };
+  const pump = { id: 'demo', name: 'Demo pump', model: 'TC-JS-P1', demo: true };
+  const read = makeReader(pump);
+  const reply = (cmd, data) => read(Array.from(frame(cmd, data)));
+  pump.write = async bytes => {
+    const cmd = (bytes[2] << 8) | bytes[3], d = bytes.slice(5, 5 + bytes[4]);
+    if (cmd === CMD.WEIGHT) sim.weight = (d[0] << 8) | d[1];
+    if (cmd === CMD.MODE) sim.mode = d[0];
+    if (cmd === CMD.ECC) sim.ecc = d[0];
+    if (cmd === CMD.CONC) sim.conc = d[0];
+    if (cmd === CMD.CHAIN) sim.chain = d[0];
+    if (cmd === CMD.UNIT) { const kg = d[0] === 1; if (kg !== sim.unitKg) sim.weight = Math.round(kg ? sim.weight / 2.2046 : sim.weight * 2.2046); sim.unitKg = kg; }
+    if (cmd === CMD.REPS_CLEAR) sim.reps = 0;
+    if (cmd === CMD.PAUSE) sim.counting = false;
+    if (cmd === CMD.START) sim.counting = true;
+    if (cmd === CMD.FW) setTimeout(() => reply(CMD.FW, [0, 1, 0, 4, 0, 2]), 60);
+    if (cmd === CMD.LIMITS) setTimeout(() => reply(CMD.LIMITS, [5, 11, 30, 66]), 60);
+    if (cmd === CMD.SN) setTimeout(() => reply(CMD.SN, Array.from('DEMO0001', c => c.charCodeAt(0))), 60);
+  };
+  pump.timer = setInterval(() => {
+    sim.t += 0.1;
+    const phase = Math.sin(sim.t * 2.2);            // one rep ≈ 2.9 s
+    sim.len = Math.max(0, Math.round(170 * (phase + 1) / 2));
+    const speed = Math.round(Math.abs(Math.cos(sim.t * 2.2)) * 0.9 * 300000 / (35 * Math.PI)); // ≈0–0.9 m/s
+    if (sim.lastPhase < 0 && phase >= 0 && sim.counting) sim.reps++;
+    sim.lastPhase = phase;
+    const d = [...u16(8120), ...u16(Math.round(phase * 900) & 0xffff), sim.batt, 31,
+      ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      sim.mode, ...u16(sim.weight), ...u16(speed), ...u16(sim.len), sim.ecc, sim.conc, sim.chain,
+      ...u16(170), ...u16(sim.reps), 0, sim.unitKg ? 1 : 2];
+    const f = Array.from(frame(CMD.STATUS, d));
+    read(f.slice(0, 20)); read(f.slice(20));       // arrive split, like a 20-byte MTU link
+  }, 100);
+  addPump(pump);
+}
+
+/* ================= Live status → UI ================= */
+function primary() { return S.pumps[0]; }
+function onStatus(p) {
+  const st = p.status;
+  if (p === primary()) {
+    if (S.unitKg !== st.unitKg) { S.unitKg = st.unitKg; S.target = null; }
+    if (S.target == null) S.target = st.weight;
+    if (!modeTouched) { S.mode = st.mode || 1; S.tune.ecc = st.ecc; S.tune.conc = st.conc; S.tune.chain = st.chain; renderModes(); }
+  }
+  const all = S.pumps.filter(x => x.status);
+  const reps = all.reduce((a, x) => a + x.status.reps, 0);
+  const speed = Math.max(...all.map(x => speedToMs(x.status.speed)));
+  const len = Math.max(...all.map(x => countsToCm(x.status.length)));
+  $('rReps').textContent = S.wk.running || S.wk.elapsed ? Math.max(0, reps - S.wk.baseReps) : reps;
+  $('rSpeed').textContent = speed.toFixed(1);
+  $('rLen').textContent = Math.round(len);
+  trackWorkout(reps, speed);
+  renderLoad(); renderPumps(true);
+}
+
+/* ================= Resistance ================= */
+function lim() { return S.unitKg ? [S.limits.minKg, S.limits.maxKg] : [S.limits.minLb, S.limits.maxLb]; }
+function renderLoad() {
+  const [mn, mx] = lim();
+  const sl = $('wSlider');
+  sl.min = mn; sl.max = mx;
+  $('wMin').textContent = mn; $('wMax').textContent = mx;
+  const unit = S.unitKg ? 'kg' : 'lb';
+  $('wUnit').textContent = unit;
+  const actual = primary()?.status?.weight;
+  const shown = S.target ?? actual;
+  $('wVal').textContent = shown ?? '–';
+  if (document.activeElement !== sl && shown != null) sl.value = shown;
+  const total = S.pumps.length > 1 && S.pumps.every(x => x.status)
+    ? ` · total ${S.pumps.reduce((a, x) => a + x.status.weight, 0)} ${unit}` : '';
+  $('wSub').textContent = `set on pump: ${actual ?? '–'} ${actual != null ? unit : ''}${total}`;
+  $('uKg').setAttribute('aria-pressed', S.unitKg); $('uLb').setAttribute('aria-pressed', !S.unitKg);
+  $('wkVolU').textContent = unit;
+}
+let wTimer;
+function setWeight(v) {
+  const [mn, mx] = lim();
+  S.target = Math.min(mx, Math.max(mn, Math.round(v)));
+  renderLoad();
+  clearTimeout(wTimer);
+  wTimer = setTimeout(() => send(CMD.WEIGHT, u16(S.target)), 250); // app throttles to ≥500 ms; we debounce
+}
+$('wMinus').onclick = () => setWeight((S.target ?? lim()[0]) - 1);
+$('wPlus').onclick  = () => setWeight((S.target ?? lim()[0]) + 1);
+$('wSlider').oninput = e => setWeight(+e.target.value);
+
+/* ================= Modes ================= */
+let modeTouched = false;
+function renderModes() {
+  const box = $('modes');
+  if (!box.childElementCount) {
+    for (const m of MODES) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.dataset.id = m.id;
+      b.innerHTML = `${m.name}<small>${m.sub}</small>`;
+      b.onclick = () => {
+        modeTouched = true; S.mode = m.id; renderModes(); send(CMD.MODE, [m.id]);
+        if (m.tune) setTimeout(() => sendTune(m), 300);
+      };
+      box.appendChild(b);
+    }
+  }
+  for (const b of box.children) b.setAttribute('aria-pressed', +b.dataset.id === S.mode);
+  const m = MODES.find(x => x.id === S.mode);
+  $('tune').hidden = !m?.tune;
+  if (m?.tune) {
+    const sl = $('tSlider');
+    sl.min = m.min ?? 0; sl.max = m.max ?? 50;
+    sl.value = S.tune[m.key] || (m.min ?? 0);
+    $('tLabel').textContent = m.label; $('tHint').textContent = m.hint;
+    $('tVal').textContent = sl.value + (m.pct === false ? '' : '%');
+  }
+}
+function sendTune(m) {
+  const v = S.tune[m.key] || (m.min ?? 0);
+  send(m.tune, m.tune === CMD.SPEED ? u16(v) : [v]);
+}
+$('tSlider').oninput = e => {
+  const m = MODES.find(x => x.id === S.mode); if (!m?.tune) return;
+  S.tune[m.key] = +e.target.value;
+  $('tVal').textContent = e.target.value + (m.pct === false ? '' : '%');
+};
+$('tSlider').onchange = () => { modeTouched = true; const m = MODES.find(x => x.id === S.mode); if (m?.tune) sendTune(m); };
+
+/* ================= Workout ================= */
+let tick, wakeLock;
+function fmt(s) { s = Math.floor(s); const m = Math.floor(s / 60); return `${m}:${String(s % 60).padStart(2, '0')}`; }
+function kgOf(w) { return S.unitKg ? w : w / 2.2046; }
+function trackWorkout(reps, speed) {
+  const w = S.wk; if (!w.running) return;
+  w.peak = Math.max(w.peak, speed);
+  if (reps > w.lastReps) {
+    const load = S.pumps.reduce((a, x) => a + (x.status?.weight || 0), 0);
+    const travelM = Math.max(...S.pumps.map(x => countsToCm(x.status?.pullLength || 0))) / 100;
+    for (let i = w.lastReps; i < reps; i++) {
+      w.reps.push({ peak: +w.peak.toFixed(2), load });
+      w.work += kgOf(load) * 9.81 * (travelM || 0.5);
+    }
+    w.lastReps = reps; w.peak = 0;
+    drawChart(); renderWkStats();
+  }
+}
+function renderWkStats() {
+  const w = S.wk;
+  const vol = w.reps.reduce((a, r) => a + r.load, 0);
+  $('wkVol').textContent = Math.round(vol);
+  $('wkKcal').textContent = (w.work / 4184 / 0.25).toFixed(1);
+}
+async function startWk() {
+  const w = S.wk;
+  if (!S.pumps.length) { toast('Connect a pump first'); return; }
+  if (w.running) { // pause
+    w.running = false; w.elapsed += (Date.now() - w.started) / 1000; clearInterval(tick);
+    send(CMD.PAUSE); $('wkStart').textContent = 'Resume';
+    try { await wakeLock?.release(); } catch (_) {}
+    return;
+  }
+  if (!w.elapsed) {
+    const reps = S.pumps.reduce((a, x) => a + (x.status?.reps || 0), 0);
+    Object.assign(w, { baseReps: reps, lastReps: reps, reps: [], peak: 0, work: 0 });
+    drawChart(); renderWkStats();
+  }
+  w.running = true; w.started = Date.now();
+  send(CMD.START);
+  tick = setInterval(() => ($('wkClock').textContent = fmt(w.elapsed + (Date.now() - w.started) / 1000)), 250);
+  $('wkStart').textContent = 'Pause'; $('wkFinish').disabled = false;
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (_) {}
+}
+function finishWk() {
+  const w = S.wk;
+  if (w.running) { w.elapsed += (Date.now() - w.started) / 1000; clearInterval(tick); send(CMD.PAUSE); }
+  try { wakeLock?.release(); } catch (_) {}
+  if (w.reps.length) {
+    const unit = S.unitKg ? 'kg' : 'lb';
+    const entry = {
+      date: new Date().toISOString(), seconds: Math.round(w.elapsed), reps: w.reps.length,
+      volume: Math.round(w.reps.reduce((a, r) => a + r.load, 0)), unit,
+      kcal: +(w.work / 4184 / 0.25).toFixed(1), mode: MODES.find(m => m.id === S.mode)?.name,
+      topSpeed: Math.max(...w.reps.map(r => r.peak)), repLog: w.reps,
+    };
+    const h = loadHist(); h.unshift(entry); saveHist(h); renderHist();
+    toast('Workout saved');
+  } else toast('No reps recorded, nothing saved');
+  Object.assign(w, { running: false, elapsed: 0, reps: [], work: 0 });
+  $('wkClock').textContent = '0:00'; $('wkStart').textContent = 'Start'; $('wkFinish').disabled = true;
+  drawChart(); renderWkStats();
+}
+$('wkStart').onclick = startWk;
+$('wkFinish').onclick = finishWk;
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && S.wk.running) try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (_) {}
+});
+
+function drawChart() {
+  const c = $('chart'), dpr = window.devicePixelRatio || 1;
+  const W = c.clientWidth, H = c.clientHeight;
+  c.width = W * dpr; c.height = H * dpr;
+  const g = c.getContext('2d'); g.scale(dpr, dpr);
+  const css = getComputedStyle(document.documentElement);
+  const muted = css.getPropertyValue('--muted').trim(), acc = css.getPropertyValue('--accent').trim(), line = css.getPropertyValue('--line').trim();
+  const reps = S.wk.reps.slice(-40);
+  g.font = '12px ' + css.getPropertyValue('--font-body');
+  if (!reps.length) { g.fillStyle = muted; g.textAlign = 'center'; g.fillText('Rep speeds appear here once you start', W / 2, H / 2 + 4); return; }
+  const top = Math.max(1, Math.ceil(Math.max(...reps.map(r => r.peak)) * 2) / 2);
+  const padL = 34, padB = 18, padT = 10, ih = H - padB - padT, iw = W - padL - 8;
+  g.strokeStyle = line; g.fillStyle = muted; g.textAlign = 'right'; g.lineWidth = 1;
+  for (const v of [0, top / 2, top]) {
+    const y = padT + ih - (v / top) * ih;
+    g.beginPath(); g.moveTo(padL, y + .5); g.lineTo(W - 8, y + .5); g.stroke();
+    g.fillText(v.toFixed(1), padL - 6, y + 4);
+  }
+  const bw = iw / Math.max(reps.length, 8);
+  reps.forEach((r, i) => {
+    const h = (r.peak / top) * ih;
+    g.fillStyle = i === reps.length - 1 ? acc : acc + '99';
+    g.fillRect(padL + i * bw + 2, padT + ih - h, Math.max(2, bw - 4), h);
+  });
+  g.fillStyle = muted; g.textAlign = 'left';
+  g.fillText(`m/s · last ${reps.length} reps`, padL, H - 3);
+}
+window.addEventListener('resize', drawChart);
+
+/* ================= History (stored on this phone) ================= */
+const HK = 'pumpdeck.history.v1';
+function loadHist() { try { return JSON.parse(localStorage.getItem(HK)) || []; } catch (_) { return []; } }
+function saveHist(h) { try { localStorage.setItem(HK, JSON.stringify(h.slice(0, 500))); } catch (_) { toast('Could not save on this browser'); } }
+function renderHist() {
+  const h = loadHist(), box = $('hist');
+  box.innerHTML = '';
+  if (!h.length) { box.innerHTML = '<p class="empty">Finished workouts are saved here, on this phone.</p>'; return; }
+  for (const e of h.slice(0, 20)) {
+    const d = new Date(e.date);
+    const el = document.createElement('div'); el.className = 'item';
+    el.innerHTML = `<div><div>${e.mode || 'Workout'} · ${e.reps} reps · ${fmt(e.seconds)}</div><div class="d">${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · top ${e.topSpeed?.toFixed?.(1) ?? '–'} m/s · ~${e.kcal} kcal</div></div><div class="big num">${e.volume} ${e.unit}</div>`;
+    box.appendChild(el);
+  }
+}
+$('histExport').onclick = () => {
+  const blob = new Blob([JSON.stringify(loadHist(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `pumpdeck-history-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+$('histClear').onclick = () => ($('histConfirm').hidden = false);
+$('histNo').onclick = () => ($('histConfirm').hidden = true);
+$('histYes').onclick = () => { saveHist([]); renderHist(); $('histConfirm').hidden = true; toast('History cleared'); };
+
+/* ================= Pumps list & info ================= */
+function renderPumps(statusOnly) {
+  const box = $('pumps');
+  $('connPill').textContent = S.pumps.length ? `${S.pumps.length} connected` : 'Offline';
+  $('connPill').className = 'pill' + (S.pumps.some(p => p.demo) ? ' demo' : S.pumps.length ? ' on' : '');
+  $('btnConnect').textContent = S.pumps.length ? 'Add second pump' : 'Connect pump';
+  $('btnConnect').disabled = S.pumps.length >= 2;
+  if (!S.pumps.length) { box.innerHTML = '<p class="empty">No pump connected. Switch the pump on, then tap <em>Connect pump</em>. Connect a second one for two-handed training.</p>'; return; }
+  if (statusOnly && box.querySelectorAll('.pump').length === S.pumps.length) {
+    S.pumps.forEach((p, i) => { const el = box.children[i]; el.querySelector('.batt').textContent = p.status ? p.status.battery + '%' : '–'; el.querySelector('.meta').innerHTML = meta(p); });
+    return;
+  }
+  box.innerHTML = '';
+  S.pumps.forEach((p, i) => {
+    const el = document.createElement('div'); el.className = 'pump';
+    el.innerHTML = `<div class="name">${S.pumps.length > 1 ? (i ? 'Right · ' : 'Left · ') : ''}${p.name}</div><div class="batt num">${p.status ? p.status.battery + '%' : '–'}</div><div class="meta">${meta(p)}</div>`;
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Disconnect'; b.style.gridColumn = '1 / -1';
+    b.onclick = () => disconnect(p); el.appendChild(b);
+    box.appendChild(el);
+  });
+}
+function meta(p) {
+  const s = p.status;
+  return `<span>${p.model}</span>${p.fw ? `<span>fw ${p.fw}</span>` : ''}${s ? `<span>${s.reps} reps</span><span>${s.temp} °C</span><span>${(s.voltage / 1000).toFixed(1)} V</span>` : '<span>waiting for data…</span>'}`;
+}
+function renderInfo() {
+  const rows = [];
+  for (const p of S.pumps) {
+    rows.push([p.name, p.model]);
+    if (p.fw) rows.push(['Firmware', p.fw]);
+    if (p.sn) rows.push(['Serial', p.sn]);
+    if (p.status) rows.push(['Raw status', `V ${p.status.voltage} · I ${p.status.current} · way ${p.status.way} · pull ${p.status.pullLength}`]);
+  }
+  rows.push(['Load range', `${S.limits.minKg}–${S.limits.maxKg} kg / ${S.limits.minLb}–${S.limits.maxLb} lb`]);
+  $('info').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+}
+
+/* ================= Settings buttons ================= */
+$('uKg').onclick = () => { send(CMD.UNIT, [1]); S.target = null; };
+$('uLb').onclick = () => { send(CMD.UNIT, [2]); S.target = null; };
+$('bResetReps').onclick = () => { send(CMD.REPS_CLEAR); toast('Rep counter reset'); };
+$('bInfo').onclick = () => { send(CMD.FW); setTimeout(() => send(CMD.SN), 250); setTimeout(() => send(CMD.LIMITS), 500); };
+$('bLenSet').onclick = () => { send(CMD.ROPE_START, [1]); toast('Rope start set to current position'); };
+$('bLenReset').onclick = () => { send(CMD.ROPE_START, [0]); toast('Rope start restored'); };
+$('bPower').onclick = () => ($('powerConfirm').hidden = false);
+$('powerNo').onclick = () => ($('powerConfirm').hidden = true);
+$('powerYes').onclick = () => { send(CMD.POWER_OFF); $('powerConfirm').hidden = true; toast('Switch-off sent'); };
+$('rawSend').onclick = () => {
+  const h = $('rawIn').value.replace(/[^0-9a-f]/gi, '');
+  if (h.length < 10 || h.length % 2) { toast('Enter whole bytes in hex, at least 5'); return; }
+  const b = h.match(/../g).map(x => parseInt(x, 16)); const c = crc16(b);
+  sendAll(new Uint8Array([...b, c >> 8, c & 0xff]));
+};
+
+$('btnConnect').onclick = connectReal;
+$('btnDemo').onclick = connectDemo;
+
+/* ================= Boot ================= */
+if (!navigator.bluetooth) $('noBt').hidden = false;
+renderModes(); renderLoad(); renderPumps(); renderHist(); renderInfo(); drawChart();
+</script>
+</body>
+</html>
