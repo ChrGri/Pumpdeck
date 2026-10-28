@@ -17,6 +17,35 @@ Open the link on your phone and you're ready. Nothing to download or set up.
 
 ---
 
+## Why PumpDeck instead of the TT BOT app?
+
+- **No login.** No account, no e-mail verification code, no privacy policy to accept. Open the page and connect.
+- **Runs locally on your phone.** PumpDeck is a web app: the code runs entirely in your browser and talks to the pumps directly over Bluetooth. Nothing is sent to a server, and your workout history stays on your device. After the first visit it also opens offline.
+- **Nothing to install.** One link, nothing from an app store. Optionally add it to your home screen. Updates arrive automatically.
+- **More training insight.** Live graphs, per-rep speed bars for left and right, signed speed (pull vs. return) and temperature monitoring.
+- **Better two-pump handling.** Left/right readouts side by side, and sync of resistance, unit, mode *and* mode settings. The official app only syncs resistance and unit.
+- **Open and transparent.** The source and the decoded Bluetooth protocol are public. There's a built-in protocol log for tinkerers.
+
+| | TT BOT app | PumpDeck |
+|---|---|---|
+| Account / login required | yes | **no** |
+| Data sent to a cloud server | yes (workout records) | **no**, stays on the phone |
+| Install from app store | yes | **no**, open a link (optional home-screen install) |
+| Resistance, all 6 modes, kg/lb | ✓ | ✓ |
+| Two pumps at once | ✓ | ✓ |
+| Sync of both pumps | resistance + unit | **resistance, unit, mode and mode settings** |
+| Auto-reconnect to known pumps | ✓ | ✓ (Chrome on Android) |
+| Live graphs (speed, rope, temperature), 10/30/60 s | – | **✓** |
+| Signed speed (pull + / return −) | – | **✓** |
+| Per-rep peak-speed chart, left/right | – | **✓** |
+| Rope-length calibration | – | **✓** |
+| Workout history | in the cloud | on the phone, JSON export |
+| Protocol log / raw commands | – | **✓** |
+| Video courses and training plans | ✓ | – |
+| Firmware updates | ✓ | – (use the official app) |
+
+---
+
 ## Quick tutorial
 
 ### 1. Connect your pumps (once)
