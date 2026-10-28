@@ -181,6 +181,11 @@ details .inner { display: grid; gap: 12px; }
 .cal .raw input { font-family: var(--font-body); font-size: 1rem; }
 .raw input { flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font-family: var(--font-mono); font-size: .85rem; }
 
+/* Update bar */
+.upd { position: fixed; left: 0; right: 0; top: 0; z-index: 40; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--panel-2); border-bottom: 1px solid var(--accent); font-weight: 600;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); }
+
 /* Footer */
 .foot { display: grid; gap: 8px; justify-items: center; text-align: center; color: var(--muted); font-size: .85rem; padding-block: 8px 4px; }
 .foot .links { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
@@ -412,7 +417,7 @@ details .inner { display: grid; gap: 12px; }
   <footer class="foot">
     <span>Enjoying PumpDeck? Support its development:</span>
     <span class="links"><a href="https://ko-fi.com/captainchris88" target="_blank" rel="noopener">Ko-fi</a><a href="https://buymeacoffee.com/captainchris" target="_blank" rel="noopener">Buy Me a Coffee</a><a href="https://github.com/ChrGri/Pumpdeck" target="_blank" rel="noopener">GitHub</a></span>
-    <span class="lic">Unofficial · CC BY-NC-SA 4.0</span>
+    <span class="lic">Unofficial · CC BY-NC-SA 4.0 · version <span id="appVer"></span></span>
   </footer>
 </main>
 <div id="bigCd" class="bigcd" hidden aria-live="assertive">
@@ -420,6 +425,7 @@ details .inner { display: grid; gap: 12px; }
   <div id="bigCdNum" class="n num">3</div>
   <div id="bigCdSub" class="hint"></div>
 </div>
+<div id="updBar" class="upd" hidden><span>A new PumpDeck version is available.</span><button id="updGo" class="primary" type="button">Update now</button></div>
 <div id="toast" class="toast" role="status" hidden></div>
 
 <script>
@@ -1582,6 +1588,28 @@ $('btnDemo').onclick = () => {
 if (!navigator.bluetooth) $('noBt').hidden = false;
 renderModes(); renderLoad(); renderPumps(); renderHist(); renderInfo(); drawChart();
 renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
+
+/* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
+   so compare with version.json (fetched uncached) and offer a one-tap update ---- */
+const APP_VERSION = '2026-10-28.7';
+$('appVer').textContent = APP_VERSION;
+async function checkVersion() {
+  if (location.protocol !== 'https:') return;
+  try {
+    const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    const v = (await r.json()).version;
+    if (v && v !== APP_VERSION) $('updBar').hidden = false;
+  } catch (_) {}
+}
+$('updGo').onclick = async () => {
+  if (S.wk.phase !== 'idle' && S.wk.phase !== 'done') { toast('Finish the workout first, then update'); return; }
+  try { for (const reg of await navigator.serviceWorker?.getRegistrations?.() || []) await reg.update(); } catch (_) {}
+  try { for (const k of await caches.keys()) await caches.delete(k); } catch (_) {}
+  location.replace(location.pathname + '?v=' + Date.now());
+};
+checkVersion();
+setInterval(checkVersion, 5 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkVersion(); });
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
