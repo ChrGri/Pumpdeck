@@ -157,6 +157,7 @@ canvas { width: 100%; height: 140px; display: block; background: var(--panel-2);
 .live-k { display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); margin-bottom: -8px; }
 .live-k .num { font-family: var(--font-display); font-size: 1.15rem; color: var(--fg); }
 canvas.live { height: 120px; }
+#chart { height: 200px; }
 
 /* History */
 .hist { display: grid; gap: 8px; }
@@ -327,7 +328,7 @@ details .inner { display: grid; gap: 12px; }
         </select>
       </label>
     </div>
-    <canvas id="chart" aria-label="Rep chart for the current set"></canvas>
+    <canvas id="chart" aria-label="Rep chart for the current set, with the load per rep"></canvas>
 
     <div class="row">
       <button id="wkStart" class="primary" type="button">Start</button>
@@ -1507,25 +1508,37 @@ function drawChart() {
   const css = getComputedStyle(document.documentElement);
   const muted = css.getPropertyValue('--muted').trim(), acc = css.getPropertyValue('--accent').trim(), line = css.getPropertyValue('--line').trim();
   const fg = css.getPropertyValue('--fg').trim(), good = css.getPropertyValue('--good').trim(), colors = [acc, good];
-  const w = S.wk, set = w.set;
+  const font = px => `${px}px ${css.getPropertyValue('--font-body')}`;
+  const w = S.wk, set = w.set, unit = S.unitKg ? 'kg' : 'lb';
   const all = w.reps.filter(r => r.set === set);       // current set (or the one just finished)
   const M = { peak: { k: 'peak', u: 'm/s', step: 0.5, d: 1 }, mean: { k: 'mean', u: 'm/s', step: 0.5, d: 1 }, power: { k: 'power', u: 'W', step: 100, d: 0 } }[chartMetric];
-  $('chartTitle').textContent = set ? `Set ${set}: ${{ peak: 'peak speed', mean: 'mean speed', power: 'power' }[chartMetric]} per rep` : 'Reps appear here once you start';
-  g.font = '12px ' + css.getPropertyValue('--font-body');
+  $('chartTitle').textContent = set ? `Set ${set}: ${{ peak: 'peak speed', mean: 'mean speed', power: 'power' }[chartMetric]} and load per rep` : 'Reps appear here once you start';
+  g.font = font(12);
   if (!all.length) { g.fillStyle = muted; g.textAlign = 'center'; g.fillText(set ? 'Waiting for the first rep…' : 'Bars for each rep appear here once you start', W / 2, H / 2 + 4); return; }
   const sides = all.some(r => r.side === 1) ? 2 : 1;
   const maxN = Math.max(...all.map(r => r.n));
   const groups = Math.min(maxN, sides === 2 ? 20 : 40);
   const firstN = maxN - groups + 1;
   const shown = all.filter(r => r.n >= firstN);
+  // left axis: the chosen metric (bars); right axis: the load set on the pump (line)
   const top = Math.max(M.step * 2, Math.ceil(Math.max(...shown.map(r => r[M.k])) / M.step) * M.step);
-  const padL = 38, padB = 18, padT = sides === 2 ? 20 : 10, ih = H - padB - padT, iw = W - padL - 8;
-  g.strokeStyle = line; g.fillStyle = muted; g.textAlign = 'right'; g.lineWidth = 1;
-  for (const v of [0, top / 2, top]) {
-    const y = padT + ih - (v / top) * ih;
-    g.beginPath(); g.moveTo(padL, y + .5); g.lineTo(W - 8, y + .5); g.stroke();
-    g.fillText(v.toFixed(M.d), padL - 6, y + 4);
+  const loadOf = n => { const rs = shown.filter(r => r.n === n); return rs.length ? Math.max(...rs.map(r => r.load)) : null; };
+  const maxLoad = Math.max(1, ...shown.map(r => r.load));
+  const lStep = maxLoad > 40 ? 10 : 5, lTop = Math.max(lStep * 2, Math.ceil(maxLoad / (lStep * 2)) * lStep * 2);   // even, so the middle line is a whole number
+  const padL = 38, padR = 34, padT = 24, padB = 32, ih = H - padB - padT, iw = W - padL - padR;
+  const Y = v => padT + ih - (v / top) * ih, YL = v => padT + ih - (v / lTop) * ih;
+  // grid with both axis scales
+  g.strokeStyle = line; g.lineWidth = 1; g.font = font(11);
+  for (const f of [0, .5, 1]) {
+    const y = Math.round(padT + ih - f * ih) + .5;
+    g.beginPath(); g.moveTo(padL, y); g.lineTo(W - padR, y); g.stroke();
+    g.fillStyle = muted; g.textAlign = 'right'; g.fillText((top * f).toFixed(M.d), padL - 6, y + 4);
+    g.fillStyle = fg; g.textAlign = 'left'; g.fillText(String(Math.round(lTop * f)), W - padR + 6, y + 4);
   }
+  // axis units above each scale
+  g.fillStyle = muted; g.textAlign = 'right'; g.fillText(M.u, padL - 6, padT - 10);
+  g.fillStyle = fg; g.textAlign = 'left'; g.fillText(unit, W - padR + 6, padT - 10);
+  // bars
   const gw = iw / Math.max(groups, sides === 2 ? 6 : 8);
   const gap = Math.min(4, gw * 0.15), bw = Math.max(2, (gw - gap * 2) / sides);
   const latest = all[all.length - 1];
@@ -1539,23 +1552,46 @@ function drawChart() {
   if (chartMetric === 'mean' && PLAN.vl > 0) {
     for (const sdIdx of [0, 1]) {
       const rs = all.filter(r => r.side === sdIdx); if (!rs.length) continue;
-      const thr = Math.max(...rs.map(r => r.mean)) * (1 - PLAN.vl / 100), y = Math.round(padT + ih - (thr / top) * ih) + .5;
-      g.save(); g.setLineDash([2, 4]); g.strokeStyle = colors[sdIdx]; g.beginPath(); g.moveTo(padL, y); g.lineTo(W - 8, y); g.stroke(); g.restore();
+      const y = Math.round(Y(Math.max(...rs.map(r => r.mean)) * (1 - PLAN.vl / 100))) + .5;
+      g.save(); g.setLineDash([2, 4]); g.strokeStyle = colors[sdIdx]; g.beginPath(); g.moveTo(padL, y); g.lineTo(W - padR, y); g.stroke(); g.restore();
     }
   }
+  // load line: a step across each rep group, so drops show as a step down
+  g.save(); g.strokeStyle = fg; g.lineWidth = 2; g.lineJoin = 'round'; g.beginPath();
+  let started = false;
+  for (let n = firstN; n <= maxN; n++) {
+    const L = loadOf(n); if (L == null) continue;
+    const x0 = padL + (n - firstN) * gw, x1 = x0 + gw, y = YL(L);
+    if (!started) { g.moveTo(x0 + 1, y); started = true; } else g.lineTo(x0, y);
+    g.lineTo(x1 - 1, y);
+  }
+  g.stroke();
+  for (let n = firstN; n <= maxN; n++) {
+    const L = loadOf(n); if (L == null) continue;
+    g.beginPath(); g.arc(padL + (n - firstN + .5) * gw, YL(L), 2.5, 0, Math.PI * 2); g.fillStyle = fg; g.fill();
+  }
+  g.restore();
   // drop-set markers: dashed line before the first rep at the new weight
   for (const d of (w.ds?.drops || [])) {
     if (d.afterN + 1 < firstN || d.afterN + 1 > firstN + groups) continue;
     const x = Math.round(padL + (d.afterN + 1 - firstN) * gw) + .5;
-    g.save(); g.setLineDash([3, 3]); g.strokeStyle = fg; g.globalAlpha = .7;
+    g.save(); g.setLineDash([3, 3]); g.strokeStyle = fg; g.globalAlpha = .5;
     g.beginPath(); g.moveTo(x, padT); g.lineTo(x, padT + ih); g.stroke(); g.restore();
-    g.fillStyle = fg; g.textAlign = 'left'; g.font = '11px ' + css.getPropertyValue('--font-body');
-    g.fillText(`↓${d.to}`, x + 3, padT + ih - 4);
   }
-  g.font = '12px ' + css.getPropertyValue('--font-body');
-  g.fillStyle = muted; g.textAlign = 'left';
-  g.fillText(`${M.u} · ${groups} rep${groups > 1 ? 's' : ''}${sides === 2 ? ' per side' : ''}`, padL, H - 3);
-  if (sides === 2) ['Left', 'Right'].forEach((n, i) => { g.fillStyle = colors[i]; g.fillText(n, padL + 6 + i * 44, 13); });
+  // x axis: rep numbers (thinned out when there are many)
+  const every = [1, 2, 5, 10].find(k => gw * k >= 16) || 10;
+  g.fillStyle = muted; g.font = font(11); g.textAlign = 'center';
+  for (let n = firstN; n <= maxN; n++) {
+    if (n % every && n !== firstN) continue;
+    g.fillText(String(n), padL + (n - firstN + .5) * gw, padT + ih + 14);
+  }
+  g.fillText('rep', padL + iw / 2, H - 3);
+  // legend
+  g.font = font(12); g.textAlign = 'left';
+  let lx = padL + 4;
+  if (sides === 2) ['Left', 'Right'].forEach((n, i) => { g.fillStyle = colors[i]; g.fillText(n, lx, 13); lx += g.measureText(n).width + 12; });
+  g.strokeStyle = fg; g.lineWidth = 2; g.beginPath(); g.moveTo(lx, 9); g.lineTo(lx + 14, 9); g.stroke();
+  g.fillStyle = fg; g.fillText('Load', lx + 18, 13);
 }
 window.addEventListener('resize', drawChart);
 
@@ -1692,7 +1728,7 @@ renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 
 /* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
    so compare with version.json (fetched uncached) and offer a one-tap update ---- */
-const APP_VERSION = '2026-10-28.11';
+const APP_VERSION = '2026-10-28.12';
 $('appVer').textContent = APP_VERSION;
 async function checkVersion() {
   if (location.protocol !== 'https:') return;
