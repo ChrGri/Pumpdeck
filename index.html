@@ -1110,12 +1110,14 @@ function beep(freq = 880, ms = 120, vol = 0.15) {
   } catch (_) {}
 }
 
-// Reps are detected by the app from the rope movement, not the pump's own counter: a rep is the
-// rope pulled out past REP_UP_CM and then returned. This works the same for both pumps and does
-// not depend on each unit's internal rep counter (which can stop counting while live data is fine).
+// Reps are detected by the app from the rope movement, not the pump's own counter (which can
+// stop counting on one unit while its live data is fine). A rep is a pull of at least REP_UP_CM
+// above the lowest point since the last rep, followed by a return of at least 35 % of that pull
+// (and at least REP_UP_CM). It doesn't need the rope to go all the way back, so reps done under
+// constant tension (rope never fully retracted) count too.
 // Per rep we keep peak and mean pulling speed, rope range, estimated power, and velocity loss.
-const REP_UP_CM = 10;   // a pull must reach this many cm (calibrated) before it counts as a rep
-function repState() { return { phase: 'in', peak: 0, sum: 0, cnt: 0, n: 0, hi: -Infinity, lo: Infinity, ext: 0, best: 0, last1: null }; }
+const REP_UP_CM = 10;   // minimum pull (and minimum return) in calibrated cm
+function repState() { return { phase: 'in', peak: 0, sum: 0, cnt: 0, n: 0, hi: -Infinity, lo: Infinity, ext: 0, trough: Infinity, best: 0, last1: null }; }
 function finishRep(w, p, sd, side) {
   sd.n++;
   const load = p.status.weight, kg = kgOf(load);
@@ -1129,6 +1131,7 @@ function finishRep(w, p, sd, side) {
   w.reps.push(r); sd.last1 = r;
   w.work += kg * 9.81 * (range / 100 || 0.5);
   sd.phase = 'in'; sd.peak = 0; sd.sum = 0; sd.cnt = 0; sd.hi = -Infinity; sd.lo = Infinity; sd.ext = 0;
+  sd.trough = Infinity;   // set from the next samples
   evalDrop(r);
 }
 function trackWorkout(all) {
@@ -1143,11 +1146,19 @@ function trackWorkout(all) {
       sd.peak = Math.max(sd.peak, v);
       if (v > 0.05) { sd.sum += v; sd.cnt++; }               // average over the pull only
       sd.hi = Math.max(sd.hi, cm); sd.lo = Math.min(sd.lo, cm); sd.ext = Math.max(sd.ext, cm);
-      const exit = Math.max(3, Math.min(REP_UP_CM, sd.ext * 0.4));   // returned far enough = rep done
-      if (cm <= exit) { finishRep(w, p, sd, side); changed = true; }
-    } else if (cm >= REP_UP_CM) {                            // rope pulled out: a rep begins
-      sd.phase = 'out'; sd.peak = Math.max(0, v); sd.sum = v > 0.05 ? v : 0; sd.cnt = v > 0.05 ? 1 : 0;
-      sd.hi = cm; sd.lo = cm; sd.ext = cm;
+      const pull = sd.ext - sd.trough;                        // how far this rep went out
+      const back = Math.max(REP_UP_CM, pull * 0.35);          // how far it must come back
+      if (sd.ext - cm >= back) {                              // returned enough: rep done
+        const low = cm;
+        finishRep(w, p, sd, side); changed = true;
+        sd.trough = low;
+      }
+    } else {
+      sd.trough = Math.min(sd.trough, cm);                    // lowest point before the next pull
+      if (cm - sd.trough >= REP_UP_CM) {                      // pulled out far enough: a rep begins
+        sd.phase = 'out'; sd.peak = Math.max(0, v); sd.sum = v > 0.05 ? v : 0; sd.cnt = v > 0.05 ? 1 : 0;
+        sd.hi = cm; sd.lo = sd.trough; sd.ext = cm;
+      }
     }
   }
   if (!changed) return;
@@ -1681,7 +1692,7 @@ renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 
 /* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
    so compare with version.json (fetched uncached) and offer a one-tap update ---- */
-const APP_VERSION = '2026-10-28.10';
+const APP_VERSION = '2026-10-28.11';
 $('appVer').textContent = APP_VERSION;
 async function checkVersion() {
   if (location.protocol !== 'https:') return;
