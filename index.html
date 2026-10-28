@@ -88,6 +88,11 @@ section.card { background: var(--panel); border-radius: var(--r); padding: 16px;
 .stat { background: var(--panel-2); border-radius: 10px; padding: 10px 12px; min-width: 0; }
 .stat .k { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
 .stat .v { font-family: var(--font-display); font-weight: 600; font-size: 1.9rem; line-height: 1.1; }
+.stat .multi.two { font-size: 1.45rem; display: grid; }
+.stat > .u { margin-left: 0; }
+.s0 { color: var(--accent); }
+.s1 { color: var(--good); }
+.side { font-family: var(--font-display); font-size: 1.25rem; letter-spacing: .03em; }
 .stat .u { font-size: .85rem; color: var(--muted); margin-left: 2px; }
 
 .load { display: grid; grid-template-columns: 64px 1fr 64px; align-items: center; gap: 10px; }
@@ -202,9 +207,9 @@ details .inner { display: grid; gap: 12px; }
     <input id="wSlider" type="range" min="5" max="30" step="1" value="5" aria-label="Resistance">
     <div class="scale"><span id="wMin" class="num">5</span><span id="wMax" class="num">30</span></div>
     <div class="readout">
-      <div class="stat"><div class="k">Reps</div><div><span id="rReps" class="v num">0</span></div></div>
-      <div class="stat"><div class="k">Speed</div><div><span id="rSpeed" class="v num">0.0</span><span class="u">m/s</span></div></div>
-      <div class="stat"><div class="k">Rope out</div><div><span id="rLen" class="v num">0</span><span class="u">cm</span></div></div>
+      <div class="stat"><div class="k">Reps</div><div id="rReps" class="v num multi">0</div></div>
+      <div class="stat"><div class="k">Speed</div><div id="rSpeed" class="v num multi">0.0</div><div class="u">m/s</div></div>
+      <div class="stat"><div class="k">Rope out</div><div id="rLen" class="v num multi">0</div><div class="u">cm</div></div>
     </div>
   </section>
 
@@ -385,7 +390,7 @@ function signedMs(p) {
   if (v >= 0x8000) return -speedToMs(0x10000 - v);
   return speedToMs(v) * (p.dir || 1);
 }
-const fmtSigned = (v, d) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(d);
+const fmtSigned = (v, d) => { const r = +v.toFixed(d); return (r > 0 ? '+' : r < 0 ? '−' : '') + Math.abs(r).toFixed(d); };
 const strongest = arr => arr.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0);
 
 function parseStatus(b) {
@@ -479,7 +484,7 @@ function handleFrame(p, f, crcOk) {
     case CMD.LIMITS:
       if (f[4] === 4) {
         S.limits = { minKg: f[5], minLb: f[6], maxKg: f[7], maxLb: f[8] };
-        p.limits = S.limits; renderLoad(); renderInfo();
+        p.limits = S.limits; p.gotLimits = true; renderLoad(); renderInfo();
       }
       break;
     case CMD.SN: p.sn = String.fromCharCode(...f.slice(5, 5 + f[4]).filter(c => c >= 32 && c < 127)) || hex(f.slice(5, 5 + f[4])); renderInfo(); break;
@@ -604,10 +609,21 @@ function addPump(p) {
   S.pumps.sort((a, b) => knownIndex(a) - knownIndex(b));   // remembered order = left, right
   log('rx', `${p.name} connected (${p.model})`);
   renderPumps(); renderAuto();
-  // same follow-up the official app sends: firmware version, then weight limits
-  setTimeout(() => p.write(frame(CMD.FW)), 200);
-  setTimeout(() => p.write(frame(CMD.LIMITS)), 400);
+  // Same follow-up the official app sends (firmware version, then weight limits), but repeated
+  // until the pump answers: when two pumps connect at once, Android's Bluetooth stack can drop
+  // a write that overlaps the other pump's connection setup.
+  queryInfo(p, 0);
   toast(`${p.name} connected`);
+}
+function queryInfo(p, attempt) {
+  const delays = [300, 1500, 3000, 6000, 10000];
+  if (attempt >= delays.length) return;
+  setTimeout(() => {
+    if (!S.pumps.includes(p) || (p.fw && p.gotLimits)) return;
+    if (!p.fw) p.write(frame(CMD.FW)).catch(e => log('er', `${p.name}: ${e.message}`));
+    if (!p.gotLimits) setTimeout(() => p.write(frame(CMD.LIMITS)).catch(() => {}), 250);
+    queryInfo(p, attempt + 1);
+  }, delays[attempt]);
 }
 function dropPump(p, why) {
   S.pumps = S.pumps.filter(x => x !== p);
@@ -684,6 +700,13 @@ function connectDemo() {
 
 /* ================= Live status → UI ================= */
 function primary() { return S.pumps[0]; }
+// one value per pump, stacked, in the pump's colour (left orange, right green)
+function setMulti(id, vals) {
+  const el = $(id);
+  if (vals.length < 2) { el.className = 'v num multi'; el.textContent = vals[0] ?? '0'; return; }
+  el.className = 'v num multi two';
+  el.innerHTML = vals.map((v, i) => `<span class="s${i}">${v}</span>`).join('');
+}
 function onStatus(p) {
   const st = p.status;
   if (p === primary()) {
@@ -693,12 +716,11 @@ function onStatus(p) {
   }
   trackDir(p);
   const all = S.pumps.filter(x => x.status);
-  const reps = all.reduce((a, x) => a + x.status.reps, 0);
-  const speed = strongest(all.map(signedMs));
-  const len = Math.max(...all.map(x => countsToCm(x.status.length)));
-  $('rReps').textContent = S.wk.running || S.wk.elapsed ? Math.max(0, reps - S.wk.baseReps) : reps;
-  $('rSpeed').textContent = fmtSigned(speed, 1);
-  $('rLen').textContent = Math.round(len);
+  const inWk = S.wk.running || S.wk.elapsed;
+  const repsOf = x => inWk ? Math.max(0, x.status.reps - (S.wk.basePer?.[x.id] ?? x.status.reps)) : x.status.reps;
+  setMulti('rReps', S.pumps.map(x => x.status ? String(repsOf(x)) : '–'));
+  setMulti('rSpeed', S.pumps.map(x => x.status ? fmtSigned(signedMs(x), 1) : '–'));
+  setMulti('rLen', S.pumps.map(x => x.status ? String(Math.round(countsToCm(x.status.length))) : '–'));
   trackWorkout(all);
   pushLive(all);
   syncPumps();
@@ -983,7 +1005,7 @@ async function startWk() {
   }
   if (!w.elapsed) {
     const reps = S.pumps.reduce((a, x) => a + (x.status?.reps || 0), 0);
-    Object.assign(w, { baseReps: reps, reps: [], side: {}, work: 0 });
+    Object.assign(w, { baseReps: reps, basePer: Object.fromEntries(S.pumps.map(x => [x.id, x.status?.reps || 0])), reps: [], side: {}, work: 0 });
     drawChart(); renderWkStats();
   }
   w.running = true; w.started = Date.now();
@@ -1105,7 +1127,7 @@ function renderPumps(statusOnly) {
   box.innerHTML = '';
   S.pumps.forEach((p, i) => {
     const el = document.createElement('div'); el.className = 'pump';
-    el.innerHTML = `<div class="name">${S.pumps.length > 1 ? (i ? 'Right · ' : 'Left · ') : ''}${p.name}</div><div class="batt num">${p.status ? p.status.battery + '%' : '–'}</div><div class="meta">${meta(p)}</div>`;
+    el.innerHTML = `<div class="name">${S.pumps.length > 1 ? `<span class="side s${i}">${i ? 'Right' : 'Left'}</span>` : p.name}</div><div class="batt num">${p.status ? p.status.battery + '%' : '–'}</div><div class="meta">${meta(p)}</div>`;
     const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Disconnect'; b.style.gridColumn = '1 / -1';
     b.onclick = () => disconnect(p); el.appendChild(b);
     box.appendChild(el);
@@ -1113,7 +1135,7 @@ function renderPumps(statusOnly) {
 }
 function meta(p) {
   const s = p.status;
-  return `<span>${p.model}</span>${p.fw ? `<span>fw ${p.fw}</span>` : ''}${s ? `<span>${s.reps} reps</span><span>${s.temp} °C</span><span>${(s.voltage / 1000).toFixed(1)} V</span>` : '<span>waiting for data…</span>'}`;
+  return `${S.pumps.length > 1 ? `<span>${p.name}</span>` : ''}<span>${p.model}</span>${p.fw ? `<span>fw ${p.fw}</span>` : ''}${s ? `<span>${s.reps} reps</span><span>${s.temp} °C</span><span>${(s.voltage / 1000).toFixed(1)} V</span>` : '<span>waiting for data…</span>'}`;
 }
 function renderInfo() {
   const rows = [];
