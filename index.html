@@ -153,6 +153,13 @@ details .inner { display: grid; gap: 12px; }
 .cal .raw input { font-family: var(--font-body); font-size: 1rem; }
 .raw input { flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font-family: var(--font-mono); font-size: .85rem; }
 
+/* Footer */
+.foot { display: grid; gap: 8px; justify-items: center; text-align: center; color: var(--muted); font-size: .85rem; padding-block: 8px 4px; }
+.foot .links { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.foot a { color: var(--fg); text-decoration: none; background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: 8px 14px; font-weight: 600; }
+.foot a:first-child { border-color: var(--accent); color: var(--accent); }
+.foot .lic { font-size: .75rem; }
+
 /* In-page confirm */
 .confirm { background: var(--panel-2); border: 1px solid var(--bad); border-radius: 10px; padding: 12px; display: grid; gap: 10px; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 99px; font-weight: 600; font-size: .9rem; max-width: calc(100% - 32px); z-index: 20; }
@@ -315,6 +322,11 @@ details .inner { display: grid; gap: 12px; }
       <p class="hint">Type a frame without its checksum, e.g. <code>5A21231000</code> asks for the weight limits. Frames go to every connected pump.</p>
     </div>
   </details>
+  <footer class="foot">
+    <span>Enjoying PumpDeck? Support its development:</span>
+    <span class="links"><a href="https://ko-fi.com/captainchris88" target="_blank" rel="noopener">Ko-fi</a><a href="https://buymeacoffee.com/captainchris" target="_blank" rel="noopener">Buy Me a Coffee</a><a href="https://github.com/ChrGri/Pumpdeck" target="_blank" rel="noopener">GitHub</a></span>
+    <span class="lic">Unofficial · CC BY-NC-SA 4.0</span>
+  </footer>
 </main>
 <div id="toast" class="toast" role="status" hidden></div>
 

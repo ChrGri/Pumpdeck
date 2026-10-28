@@ -1,5 +1,9 @@
 # PumpDeck
 
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Donate-ff5e5b.svg?logo=kofi&logoColor=white)](https://ko-fi.com/captainchris88)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg?logo=buy-me-a-coffee)](https://buymeacoffee.com/captainchris)
+
 An alternative app for the **Rayofi Go Tone** / **TT BOT** smart cable-pull fitness pumps. It talks to the pumps directly over Bluetooth. There's no account, no cloud and nothing to install.
 
 ## 👉 Open the app: **https://chrgri.github.io/Pumpdeck/**
@@ -76,3 +80,23 @@ Under **Protocol log**: every Bluetooth packet, plus a field for sending your ow
 
 ## For developers
 The whole app is one file: [`index.html`](index.html). The decoded Bluetooth protocol is in [PROTOCOL.md](PROTOCOL.md).
+
+---
+
+## ☕ Support
+
+If PumpDeck makes your training better, consider supporting further open-source development:
+
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Donate-ff5e5b.svg?logo=kofi&logoColor=white&style=for-the-badge)](https://ko-fi.com/captainchris88)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg?logo=buy-me-a-coffee&style=for-the-badge)](https://buymeacoffee.com/captainchris)
+
+---
+
+## 📄 License
+
+This work is licensed under a [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0)][cc-by-nc-sa].
+
+[![CC BY-NC-SA 4.0][cc-by-nc-sa-image]][cc-by-nc-sa]
+
+[cc-by-nc-sa]: http://creativecommons.org/licenses/by-nc-sa/4.0/
+[cc-by-nc-sa-image]: https://licensebuttons.net/l/by-nc-sa/4.0/88x31.png
