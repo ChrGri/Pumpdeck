@@ -85,6 +85,7 @@ Chrome menu **⋮** → **Install app** / **Add to Home screen**. PumpDeck then 
    - **Rest** in seconds.
    - Optionally **Stop at loss**: the set ends when a rep's mean speed drops that many percent below your best rep in the set. 20–30 % is common for velocity-based training.
 2. Tap **Start**. A full-screen **3-2-1** countdown (with beeps) comes before every set. The screen stays on. Each set ends automatically when the reps are done (or at the velocity loss). The rest countdown is pinned to the bottom of the screen, so you see it wherever you've scrolled. Its last 3 seconds become the full-screen 3-2-1, then the next set starts. Use **−15 s / +15 s** to adjust the rest, or **Start next set** to skip it. Tap the 3-2-1 to start right away.
+   - Tick **Rest timer as notification** (Chrome asks for permission once). When you switch to another app or lock the screen during a rest, the countdown shows as a notification with **+15 s** and **Start now** buttons, and a loud **Go!** notification announces the next set. Keep PumpDeck open in the background; the app can't run once Android closes it.
 3. After every rep, the tiles show for left and right:
    - **Peak** and **Mean** speed while pulling (m/s)
    - estimated **Power** (W)

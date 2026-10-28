@@ -82,6 +82,8 @@ section.card { background: var(--panel); border-radius: var(--r); padding: 16px;
 .sync input { width: 22px; height: 22px; accent-color: var(--accent); }
 .sync .hint { grid-column: 1 / -1; }
 .plan-t { font-weight: 600; }
+.notify { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-weight: 600; min-height: 32px; }
+.notify input { width: 22px; height: 22px; accent-color: var(--accent); }
 .wk-head .pill { margin-top: 6px; }
 .bigcd { position: fixed; inset: 0; z-index: 30; display: grid; place-content: center; justify-items: center; gap: 8px; background: var(--overlay); text-align: center; padding: 16px; }
 .bigcd .k { font-family: var(--font-display); font-size: 1.4rem; letter-spacing: .08em; text-transform: uppercase; color: var(--fg); }
@@ -340,6 +342,7 @@ details .inner { display: grid; gap: 12px; }
         <label for="pRest">Rest<span><input id="pRest" type="number" inputmode="numeric" min="0" max="600" step="15" value="90"> s</span></label>
         <label for="pVl">Stop at loss<span><input id="pVl" type="number" inputmode="numeric" min="0" max="60" step="5" value="0"> %</span></label>
       </div>
+      <label for="pNotify" class="notify"><input id="pNotify" type="checkbox"> Rest timer as notification</label>
       <p class="hint">Reps 0 = open set, end it yourself. "Stop at loss" ends the set when a rep's mean speed drops that far below the set's best rep (velocity-based training; 0 = off, 20–30 % is common).</p>
     </div>
 
@@ -1158,6 +1161,60 @@ function renderVbt() {
   lossEl.classList.toggle('warn', PLAN.vl > 0 && S.pumps.some(p => (lastOf(p)?.loss || 0) >= PLAN.vl * 0.75));
 }
 
+/* ---- rest timer as a notification ----
+   While you're in another app or the screen is locked, the rest countdown shows as a silent
+   notification (updated every few seconds) with +15 s / Start now buttons, followed by a
+   loud "Go!" notification when the next set begins. Android needs these to come from the
+   service worker, so this only works on the hosted (https) page. */
+const NTAG = 'pumpdeck-timer';
+let lastNotifAt = 0;
+async function swReg() { try { return await navigator.serviceWorker?.getRegistration(); } catch (_) { return null; } }
+function notifyAllowed() { return PLAN.notify && 'Notification' in window && Notification.permission === 'granted'; }
+async function notify(title, body, loud, actions) {
+  if (!notifyAllowed()) return;
+  const reg = await swReg(); if (!reg) return;
+  try {
+    await reg.showNotification(title, {
+      body, tag: NTAG, renotify: !!loud, silent: !loud, icon: 'icon-192.png', badge: 'icon-192.png',
+      vibrate: loud ? [300, 120, 300] : undefined, actions: actions || [], data: { t: Date.now() },
+    });
+  } catch (_) {}
+}
+async function clearNotify() {
+  const reg = await swReg(); if (!reg) return;
+  try { for (const n of await reg.getNotifications({ tag: NTAG })) n.close(); } catch (_) {}
+}
+function restNotify(force) {
+  const w = S.wk;
+  if (w.phase !== 'rest' || w.paused || !document.hidden || !notifyAllowed()) return;
+  if (!force && Date.now() - lastNotifAt < 5000) return;
+  lastNotifAt = Date.now();
+  const left = Math.max(0, Math.ceil((w.restEnd - Date.now()) / 1000));
+  const unit = S.unitKg ? 'kg' : 'lb', wt = (w.ds?.drops.length && DS.on) ? w.setW : primaryWeight();
+  notify(`Rest ${fmt(left)}`, `Next: set ${w.set + 1} of ${PLAN.sets}${PLAN.reps ? ` · ${PLAN.reps} reps` : ''}${wt != null ? ` @ ${wt} ${unit}` : ''}`,
+    false, [{ action: 'plus15', title: '+15 s' }, { action: 'skip', title: 'Start now' }]);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) restNotify(true);
+  else clearNotify();
+});
+navigator.serviceWorker?.addEventListener('message', e => {
+  if (e.data?.type !== 'notif') return;
+  if (e.data.action === 'plus15') $('restPlus').click();
+  else if (e.data.action === 'skip') $('restSkip').click();
+});
+$('pNotify').checked = !!PLAN.notify;
+$('pNotify').onchange = async e => {
+  if (e.target.checked) {
+    if (!('Notification' in window) || !navigator.serviceWorker) { e.target.checked = false; toast('Notifications need the installed app or the https page in Chrome'); return; }
+    let perm = Notification.permission;
+    if (perm === 'default') { try { perm = await Notification.requestPermission(); } catch (_) {} }
+    if (perm !== 'granted') { e.target.checked = false; toast('Notifications are blocked. Allow them in Chrome site settings.'); return; }
+  }
+  PLAN.notify = e.target.checked; savePlan();
+  toast(PLAN.notify ? 'Rest timer will show as a notification when you leave the app' : 'Rest notifications off');
+};
+
 /* ---- set flow ---- */
 function primaryWeight() { return S.pumps.find(p => p.status)?.status.weight ?? null; }
 async function startWorkout() {
@@ -1177,6 +1234,8 @@ function beginSet(n) {
     holdSync(2500); S.target = w.setW; renderLoad();
   } else w.setW = primaryWeight();
   showBigCd(null);
+  if (document.hidden) notify(`Go! Set ${n} of ${PLAN.sets}`, `${PLAN.reps ? PLAN.reps + ' reps' : 'Open set'}${primaryWeight() != null ? ` @ ${S.target ?? primaryWeight()} ${S.unitKg ? 'kg' : 'lb'}` : ''}`, true);
+  else clearNotify();
   w.set = n; w.phase = 'set'; w.running = true; w.paused = false; w.side = {};
   dsReset();
   send(CMD.START);
@@ -1200,6 +1259,7 @@ function endSet(reason) {
   beep(660, 150); setTimeout(() => beep(660, 150), 220);
   if (w.set >= PLAN.sets) {
     w.phase = 'done'; renderWk();
+    if (document.hidden) notify('Workout complete', `${PLAN.sets} sets done. Saved to history.`, true);
     toast(`All ${PLAN.sets} sets done`);
     setTimeout(finishWk, 600);
     return;
@@ -1207,7 +1267,7 @@ function endSet(reason) {
   if (PLAN.rest <= 3) { startReady(w.set + 1); return; }
   w.phase = 'rest'; w.restEnd = Date.now() + PLAN.rest * 1000; w.lastBeep = -1;
   toast(`Set ${w.set} done (${reason}). Rest ${PLAN.rest} s`);
-  renderWk(); onTick();
+  renderWk(); onTick(); restNotify(true);
 }
 // 3-2-1 "get ready" before every set: on Start, after "Start next set", and as the last
 // 3 seconds of every rest. Shown full screen so it's visible wherever you've scrolled.
@@ -1233,7 +1293,7 @@ function onTick() {
   $('wkClock').textContent = fmt(wkElapsed());
   if ((w.phase !== 'rest' && w.phase !== 'ready') || w.paused) return;
   const left = Math.ceil((w.restEnd - Date.now()) / 1000);
-  if (w.phase === 'rest') $('restLeft').textContent = fmt(left);
+  if (w.phase === 'rest') { $('restLeft').textContent = fmt(left); restNotify(false); }
   if (left <= 3 && left >= 1) {
     showBigCd(left);
     if (left !== w.lastBeep) { w.lastBeep = left; beep(880, 90); try { navigator.vibrate?.(60); } catch (_) {} }
@@ -1279,6 +1339,7 @@ function finishWk() {
   Object.assign(w, newWk());
   showBigCd(null);
   $('wkClock').textContent = '0:00';
+  if (!document.hidden) clearNotify();   // keep "Workout complete" visible if you're away
   renderWk(); renderDS(); renderVbt(); drawChart(); renderWkStats();
 }
 function endSetSilently() {   // finishing mid-set: keep the set in the summary without starting a rest
@@ -1591,7 +1652,7 @@ renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 
 /* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
    so compare with version.json (fetched uncached) and offer a one-tap update ---- */
-const APP_VERSION = '2026-10-28.7';
+const APP_VERSION = '2026-10-28.8';
 $('appVer').textContent = APP_VERSION;
 async function checkVersion() {
   if (location.protocol !== 'https:') return;
@@ -1610,7 +1671,7 @@ $('updGo').onclick = async () => {
 checkVersion();
 setInterval(checkVersion, 5 * 60 * 1000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkVersion(); });
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
 </html>
