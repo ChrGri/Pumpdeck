@@ -140,6 +140,9 @@ details .inner { display: grid; gap: 12px; }
 .log .rx { color: var(--good); }
 .log .er { color: var(--bad); }
 .raw { display: flex; gap: 8px; }
+.cal { display: grid; gap: 8px; background: var(--panel-2); border-radius: 10px; padding: 12px; }
+.cal-head { display: flex; justify-content: space-between; font-weight: 600; }
+.cal .raw input { font-family: var(--font-body); font-size: 1rem; }
 .raw input { flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font-family: var(--font-mono); font-size: .85rem; }
 
 /* In-page confirm */
@@ -269,6 +272,15 @@ details .inner { display: grid; gap: 12px; }
         <button id="bLenSet" type="button">Set rope start here</button>
         <button id="bLenReset" type="button">Restore default rope start</button>
       </div>
+      <div class="cal">
+        <div class="cal-head"><span>Rope calibration</span><span class="num">× <span id="calVal">1.50</span></span></div>
+        <p class="hint">Pull the rope out to a length you've measured (an A4 sheet's long side is 29.7 cm), keep it there, type the real length and tap Calibrate. The same factor also corrects speed.</p>
+        <div class="raw">
+          <input id="calIn" type="number" inputmode="decimal" min="5" max="300" step="0.1" placeholder="Real length in cm, e.g. 29.7">
+          <button id="calGo" type="button">Calibrate</button>
+        </div>
+        <button id="calReset" type="button">Reset to default (× 1.5)</button>
+      </div>
       <button id="bPower" class="danger" type="button">Switch pumps off</button>
       <div id="powerConfirm" class="confirm" hidden>
         <span>Switch off all connected pumps?</span>
@@ -338,9 +350,15 @@ function frame(cmd, data = []) {
 }
 const u16 = v => [(v >> 8) & 0xff, v & 0xff];
 const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join(' ').toUpperCase();
-// app: length * π * 35 / 50 — the result is already in cm (confirmed on a real pump)
-const countsToCm = n => n * 35 * Math.PI / 50;
-const speedToMs  = n => n * 35 * Math.PI / 300000;   // app formula
+// App formula: length × π × 35 / 50 cm and speed × 35π / 300000 m/s. On a real pump that reads
+// about 1.5× short (29.7 cm pulled showed 20 cm), so both are scaled by a calibration factor.
+// Speed comes from the same spool, so it gets the same factor.
+const ROPE_CAL_DEFAULT = 1.5;
+let ropeCal = ROPE_CAL_DEFAULT;
+try { const v = parseFloat(localStorage.getItem('pumpdeck.ropeCal')); if (v > 0.2 && v < 5) ropeCal = v; } catch (_) {}
+const rawCm = n => n * 35 * Math.PI / 50;
+const countsToCm = n => rawCm(n) * ropeCal;
+const speedToMs  = n => n * 35 * Math.PI / 300000 * ropeCal;
 
 function parseStatus(b) {
   if (b.length < 37) return null;
@@ -999,6 +1017,25 @@ $('bResetReps').onclick = () => { send(CMD.REPS_CLEAR); toast('Rep counter reset
 $('bInfo').onclick = () => { send(CMD.FW); setTimeout(() => send(CMD.SN), 250); setTimeout(() => send(CMD.LIMITS), 500); };
 $('bLenSet').onclick = () => { send(CMD.ROPE_START, [1]); toast('Rope start set to current position'); };
 $('bLenReset').onclick = () => { send(CMD.ROPE_START, [0]); toast('Rope start restored'); };
+function setCal(v) {
+  ropeCal = Math.round(v * 1000) / 1000;
+  try { localStorage.setItem('pumpdeck.ropeCal', String(ropeCal)); } catch (_) {}
+  $('calVal').textContent = ropeCal.toFixed(2);
+  live.length = 0;   // old samples used the old factor
+}
+$('calVal').textContent = ropeCal.toFixed(2);
+$('calGo').onclick = () => {
+  const real = parseFloat(String($('calIn').value).replace(',', '.'));
+  const p = S.pumps.find(x => x.status && x.status.length > 0);
+  if (!p) { toast('Connect a pump and pull the rope out first'); return; }
+  if (!(real >= 5 && real <= 300)) { toast('Enter the real length in cm, between 5 and 300'); return; }
+  const raw = rawCm(p.status.length);
+  const f = real / raw;
+  if (f < 0.2 || f > 5) { toast(`Reading ${Math.round(raw * ropeCal)} cm is too far off. Check the rope start.`); return; }
+  setCal(f);
+  toast(`Calibrated: ${real} cm = × ${ropeCal.toFixed(2)}`);
+};
+$('calReset').onclick = () => { setCal(ROPE_CAL_DEFAULT); toast('Calibration reset to × 1.5'); };
 $('bPower').onclick = () => ($('powerConfirm').hidden = false);
 $('powerNo').onclick = () => ($('powerConfirm').hidden = true);
 $('powerYes').onclick = () => { send(CMD.POWER_OFF); $('powerConfirm').hidden = true; toast('Switch-off sent'); };
