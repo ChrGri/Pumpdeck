@@ -80,6 +80,19 @@ section.card { background: var(--panel); border-radius: var(--r); padding: 16px;
 .sync label { display: flex; align-items: center; gap: 10px; font-weight: 600; min-height: 32px; }
 .sync input { width: 22px; height: 22px; accent-color: var(--accent); }
 .sync .hint { grid-column: 1 / -1; }
+.plan-t { font-weight: 600; }
+.wk-head .pill { margin-top: 6px; }
+.rest { display: grid; gap: 6px; justify-items: center; text-align: center; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 12px; padding: 14px 12px; }
+.rest .k { font-size: .75rem; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+.rest-t { font-family: var(--font-display); font-weight: 700; font-size: 4rem; line-height: 1; color: var(--accent); }
+.rest .row { width: 100%; }
+.rest .row > button { flex: 1 1 80px; }
+.readout.vbt { grid-template-columns: repeat(4, 1fr); }
+.readout.vbt .v { font-size: 1.45rem; }
+.readout.vbt .multi.two { font-size: 1.15rem; }
+@media (max-width: 380px) { .readout.vbt { grid-template-columns: 1fr 1fr; } }
+.chart-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: -6px; }
+.chart-head .hint { min-width: 0; }
 .ds-grid { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
 .ds-grid label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 500; font-size: .9rem; color: var(--muted); min-height: 0; }
 .ds-grid span { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); }
@@ -94,6 +107,7 @@ section.card { background: var(--panel); border-radius: var(--r); padding: 16px;
 .stat .k { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
 .stat .v { font-family: var(--font-display); font-weight: 600; font-size: 1.9rem; line-height: 1.1; }
 .stat .multi.two { font-size: 1.45rem; display: grid; }
+.stat .v.warn { color: var(--warn); }
 .stat > .u { margin-left: 0; }
 .s0 { color: var(--accent); }
 .s1 { color: var(--good); }
@@ -256,13 +270,65 @@ details .inner { display: grid; gap: 12px; }
 
   <section class="card" aria-labelledby="h-wk">
     <div class="wk-head">
-      <div><h2 id="h-wk">Workout</h2><div id="wkClock" class="clock num">0:00</div></div>
+      <div>
+        <h2 id="h-wk">Workout</h2>
+        <div id="wkClock" class="clock num">0:00</div>
+        <div id="wkSet" class="pill">No workout</div>
+      </div>
       <div class="readout" style="grid-template-columns: repeat(2, minmax(84px, 1fr));">
         <div class="stat"><div class="k">Volume</div><div><span id="wkVol" class="v num" style="font-size:1.4rem">0</span><span id="wkVolU" class="u">kg</span></div></div>
         <div class="stat"><div class="k">Energy*</div><div><span id="wkKcal" class="v num" style="font-size:1.4rem">0</span><span class="u">kcal</span></div></div>
       </div>
     </div>
-    <canvas id="chart" aria-label="Peak speed of each rep"></canvas>
+
+    <div id="restBox" class="rest" hidden>
+      <div class="k">Rest</div>
+      <div id="restLeft" class="rest-t num">1:30</div>
+      <div id="restNext" class="hint">Next: set 2 of 3</div>
+      <div class="row">
+        <button id="restMinus" type="button">−15 s</button>
+        <button id="restPlus" type="button">+15 s</button>
+        <button id="restSkip" class="primary" type="button">Start next set</button>
+      </div>
+    </div>
+
+    <div class="readout vbt">
+      <div class="stat"><div class="k">Peak</div><div id="vPeak" class="v num multi">–</div><div class="u">m/s</div></div>
+      <div class="stat"><div class="k">Mean</div><div id="vMean" class="v num multi">–</div><div class="u">m/s</div></div>
+      <div class="stat"><div class="k">Power</div><div id="vPow" class="v num multi">–</div><div class="u">W</div></div>
+      <div class="stat"><div class="k">Loss</div><div id="vLoss" class="v num multi">–</div><div class="u">%</div></div>
+    </div>
+
+    <div class="chart-head">
+      <span id="chartTitle" class="hint">Last rep of each side</span>
+      <label class="win" for="chartMetric">Bars
+        <select id="chartMetric">
+          <option value="peak">Peak speed</option>
+          <option value="mean">Mean speed</option>
+          <option value="power">Power</option>
+        </select>
+      </label>
+    </div>
+    <canvas id="chart" aria-label="Rep chart for the current set"></canvas>
+
+    <div class="row">
+      <button id="wkStart" class="primary" type="button">Start</button>
+      <button id="wkEndSet" type="button" disabled>End set</button>
+      <button id="wkFinish" type="button" disabled>Finish &amp; save</button>
+    </div>
+
+    <div class="sync plan">
+      <span class="plan-t">Sets &amp; rest</span>
+      <span id="planChip" class="pill">3 × 10</span>
+      <div class="ds-grid">
+        <label for="pSets">Sets<span><input id="pSets" type="number" inputmode="numeric" min="1" max="20" step="1" value="3"></span></label>
+        <label for="pReps">Reps<span><input id="pReps" type="number" inputmode="numeric" min="0" max="100" step="1" value="10"></span></label>
+        <label for="pRest">Rest<span><input id="pRest" type="number" inputmode="numeric" min="0" max="600" step="15" value="90"> s</span></label>
+        <label for="pVl">Stop at loss<span><input id="pVl" type="number" inputmode="numeric" min="0" max="60" step="5" value="0"> %</span></label>
+      </div>
+      <p class="hint">Reps 0 = open set, end it yourself. "Stop at loss" ends the set when a rep's mean speed drops that far below the set's best rep (velocity-based training; 0 = off, 20–30 % is common).</p>
+    </div>
+
     <div class="sync ds">
       <label for="dsOn"><input id="dsOn" type="checkbox"> Auto drop set</label>
       <span id="dsChip" class="pill">Off</span>
@@ -274,11 +340,7 @@ details .inner { display: grid; gap: 12px; }
       </div>
       <p id="dsMsg" class="hint">The first 2 full reps at each weight set your reference speed and range. When a rep gets slower or shorter than that, the next one is lighter.</p>
     </div>
-    <div class="row">
-      <button id="wkStart" class="primary" type="button">Start</button>
-      <button id="wkFinish" type="button" disabled>Finish &amp; save</button>
-    </div>
-    <p class="hint">Bars show each rep's peak speed, left and right side by side with two pumps. *Energy is a rough estimate from load × rope travel at 25% efficiency.</p>
+    <p class="hint">Peak and mean speed are measured while pulling out. Power ≈ load × g × speed (an estimate). *Energy is a rough estimate from load × rope travel at 25% efficiency.</p>
   </section>
 
   <section class="card" aria-labelledby="h-hist">
@@ -441,7 +503,7 @@ const S = {
   target: null,        // weight user wants
   mode: 1,
   tune: { ecc: 0, conc: 0, chain: 0, speed: 1 },
-  wk: { running: false, started: 0, elapsed: 0, baseReps: 0, reps: [], side: {}, work: 0 },
+  wk: null,   // set by newWk() in the workout section
 };
 const $ = id => document.getElementById(id);
 
@@ -701,7 +763,7 @@ function connectDemo() {
     sim.t += dt;
     // heavier load → slightly slower reps
     // fatigue builds with every rep (more with more load) and slows the athlete down
-    sim.fat = Math.max(0, sim.fat - 0.0006);
+    sim.fat = Math.max(0, sim.fat - (sim.counting ? 0.0006 : 0.006));   // recovers faster while resting
     const tempo = P.rate * (1 + P.drift * Math.sin(sim.t * 0.35 + P.ph)) * (1 - Math.min(0.35, (sim.weight - 5) / 80)) * Math.max(0.45, 1 - sim.fat);
     const before = Math.floor(sim.ph / (2 * Math.PI));
     let x = (1 - Math.cos(sim.ph)) / 2;              // 0 = rope in, 1 = fully out
@@ -747,8 +809,8 @@ function onStatus(p) {
   }
   trackDir(p);
   const all = S.pumps.filter(x => x.status);
-  const inWk = S.wk.running || S.wk.elapsed;
-  const repsOf = x => inWk ? Math.max(0, x.status.reps - (S.wk.basePer?.[x.id] ?? x.status.reps)) : x.status.reps;
+  const inWk = S.wk.phase !== 'idle';
+  const repsOf = x => inWk ? (S.wk.side[x.id]?.n || 0) : x.status.reps;
   setMulti('rReps', S.pumps.map(x => x.status ? String(repsOf(x)) : '–'));
   setMulti('rSpeed', S.pumps.map(x => x.status ? fmtSigned(signedMs(x), 1) : '–'));
   setMulti('rLen', S.pumps.map(x => x.status ? String(Math.round(countsToCm(x.status.length))) : '–'));
@@ -994,36 +1056,226 @@ $('tSlider').oninput = e => {
 };
 $('tSlider').onchange = () => { modeTouched = true; const m = MODES.find(x => x.id === S.mode); if (m?.tune) sendTune(m); };
 
-/* ================= Workout ================= */
-let tick, wakeLock;
-function fmt(s) { s = Math.floor(s); const m = Math.floor(s / 60); return `${m}:${String(s % 60).padStart(2, '0')}`; }
+/* ================= Workout: sets, rest, VBT ================= */
+// Phases: idle → set → rest → set … → done (auto-saved). w.running = "counting reps right now".
+const PK = 'pumpdeck.plan.v1';
+const PLAN = { sets: 3, reps: 10, rest: 90, vl: 0 };
+try { Object.assign(PLAN, JSON.parse(localStorage.getItem(PK)) || {}); } catch (_) {}
+function savePlan() { try { localStorage.setItem(PK, JSON.stringify(PLAN)); } catch (_) {} }
+let chartMetric = 'peak';
+try { const m = localStorage.getItem('pumpdeck.chartMetric'); if (['peak', 'mean', 'power'].includes(m)) chartMetric = m; } catch (_) {}
+
+let tick, wakeLock, audio;
+function fmt(s) { s = Math.max(0, Math.floor(s)); const m = Math.floor(s / 60); return `${m}:${String(s % 60).padStart(2, '0')}`; }
 function kgOf(w) { return S.unitKg ? w : w / 2.2046; }
-// Each pump counts its own reps; every rep gets its own bar (left/right side by side).
+function newWk() {
+  return { phase: 'idle', running: false, paused: false, t0: 0, pausedMs: 0, pausedAt: 0, set: 0, setW: null,
+    reps: [], side: {}, sets: [], work: 0, ds: null, restEnd: 0, restLeft: 0, lastBeep: -1 };
+}
+S.wk = newWk();
+function wkElapsed() { const w = S.wk; if (!w.t0) return 0; return ((w.paused ? w.pausedAt : Date.now()) - w.t0 - w.pausedMs) / 1000; }
+
+function beep(freq = 880, ms = 120, vol = 0.15) {
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = freq; g.gain.value = vol; o.connect(g); g.connect(audio.destination);
+    o.start(); o.stop(audio.currentTime + ms / 1000);
+  } catch (_) {}
+}
+
+// Each pump counts its own reps. Per rep we keep: peak and mean pulling speed, rope range,
+// estimated power, and velocity loss against the best rep of the set.
 function trackWorkout(all) {
   const w = S.wk; if (!w.running) return;
   let changed = false;
   for (const p of all) {
     const side = S.pumps.indexOf(p);
-    const sd = w.side[p.id] || (w.side[p.id] = { last: p.status.reps, peak: 0, n: 0, lo: Infinity, hi: -Infinity });
-    sd.peak = Math.max(sd.peak, signedMs(p));   // peak pulling speed (positive side)
+    const sd = w.side[p.id] || (w.side[p.id] = { last: p.status.reps, peak: 0, sum: 0, cnt: 0, n: 0, lo: Infinity, hi: -Infinity, best: 0, last1: null });
+    const v = signedMs(p);
+    sd.peak = Math.max(sd.peak, v);
+    if (v > 0.05) { sd.sum += v; sd.cnt++; }                    // pulling phase only
     const cm = countsToCm(p.status.length);
-    sd.lo = Math.min(sd.lo, cm); sd.hi = Math.max(sd.hi, cm);   // rope travel within this rep
+    sd.lo = Math.min(sd.lo, cm); sd.hi = Math.max(sd.hi, cm);
     if (p.status.reps > sd.last) {
-      const load = p.status.weight;
-      const travelM = countsToCm(p.status.pullLength || 0) / 100;
+      const load = p.status.weight, kg = kgOf(load);
       for (let i = sd.last; i < p.status.reps; i++) {
         sd.n++;
+        const mean = sd.cnt ? sd.sum / sd.cnt : sd.peak / 2;
         const range = Math.max(0, sd.hi - sd.lo);
-        const r = { side, n: sd.n, peak: +sd.peak.toFixed(2), range: Math.round(range), load };
-        w.reps.push(r);
-        w.work += kgOf(load) * 9.81 * (range / 100 || travelM || 0.5);
+        sd.best = Math.max(sd.best, mean);
+        const loss = sd.best > 0 ? Math.max(0, (1 - mean / sd.best) * 100) : 0;
+        const r = { set: w.set, side, n: sd.n, peak: +sd.peak.toFixed(2), mean: +mean.toFixed(2),
+          power: Math.round(kg * 9.81 * sd.peak), meanPower: Math.round(kg * 9.81 * mean),
+          range: Math.round(range), loss: Math.round(loss), load };
+        w.reps.push(r); sd.last1 = r;
+        w.work += kg * 9.81 * (range / 100 || 0.5);
         evalDrop(r);
       }
-      sd.last = p.status.reps; sd.peak = 0; sd.lo = cm; sd.hi = cm; changed = true;
+      sd.last = p.status.reps; sd.peak = 0; sd.sum = 0; sd.cnt = 0; sd.lo = cm; sd.hi = cm; changed = true;
     } else if (p.status.reps < sd.last) sd.last = p.status.reps;   // counter was reset on the pump
   }
-  if (changed) { drawChart(); renderWkStats(); }
+  if (!changed) return;
+  renderVbt(); drawChart(); renderWkStats(); renderWk();
+  if (w.phase !== 'set') return;
+  const sides = Object.values(w.side);
+  const maxN = Math.max(0, ...sides.map(x => x.n));
+  if (PLAN.reps > 0 && maxN >= PLAN.reps) { endSet('target reached'); return; }
+  if (PLAN.vl > 0) {
+    const hit = sides.find(x => x.last1 && x.n >= 2 && x.last1.loss >= PLAN.vl);
+    if (hit) endSet(`velocity loss ${hit.last1.loss}%`);
+  }
 }
+
+function renderVbt() {
+  const lastOf = p => S.wk.side[p.id]?.last1;
+  const vals = f => S.pumps.map(p => { const r = lastOf(p); return r ? f(r) : '–'; });
+  setMulti('vPeak', vals(r => r.peak.toFixed(2)));
+  setMulti('vMean', vals(r => r.mean.toFixed(2)));
+  setMulti('vPow', vals(r => String(r.power)));
+  setMulti('vLoss', vals(r => String(r.loss)));
+  const lossEl = $('vLoss');
+  lossEl.classList.toggle('warn', PLAN.vl > 0 && S.pumps.some(p => (lastOf(p)?.loss || 0) >= PLAN.vl * 0.75));
+}
+
+/* ---- set flow ---- */
+function primaryWeight() { return S.pumps.find(p => p.status)?.status.weight ?? null; }
+async function startWorkout() {
+  if (!S.pumps.length) { toast('Connect a pump first'); return; }
+  beep(660, 60, 0.05);                    // unlocks audio on this tap
+  Object.assign(S.wk, newWk(), { t0: Date.now() });
+  drawChart(); renderWkStats();
+  beginSet(1);
+  tick = setInterval(onTick, 250);
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (_) {}
+}
+function beginSet(n) {
+  const w = S.wk;
+  // after a drop set, the next set starts again from the set's original weight
+  if (w.setW != null && w.ds?.drops.length && DS.on) {
+    for (const p of S.pumps) p.write(frame(CMD.WEIGHT, u16(w.setW))).catch(() => {});
+    holdSync(2500); S.target = w.setW; renderLoad();
+  } else w.setW = primaryWeight();
+  w.set = n; w.phase = 'set'; w.running = true; w.paused = false; w.side = {};
+  dsReset();
+  send(CMD.START);
+  beep(1320, 180);
+  try { navigator.vibrate?.(150); } catch (_) {}
+  renderVbt(); drawChart(); renderWk();
+}
+function endSet(reason) {
+  const w = S.wk; if (w.phase !== 'set') return;
+  w.running = false;
+  send(CMD.PAUSE);
+  const reps = w.reps.filter(r => r.set === w.set);
+  const bySide = [0, 1].map(sd => reps.filter(r => r.side === sd)).filter(a => a.length);
+  w.sets.push({
+    set: w.set, reps: Math.max(0, ...bySide.map(a => a.length)), load: w.setW,
+    bestMean: Math.max(0, ...reps.map(r => r.mean)), lastLoss: Math.max(0, ...bySide.map(a => a[a.length - 1].loss)),
+    drops: (w.ds?.drops || []).map(d => d.to), end: reason,
+  });
+  log('rx', `set ${w.set} done (${reason})`);
+  try { navigator.vibrate?.([200, 100, 200]); } catch (_) {}
+  beep(660, 150); setTimeout(() => beep(660, 150), 220);
+  if (w.set >= PLAN.sets) {
+    w.phase = 'done'; renderWk();
+    toast(`All ${PLAN.sets} sets done`);
+    setTimeout(finishWk, 600);
+    return;
+  }
+  w.phase = 'rest'; w.restEnd = Date.now() + PLAN.rest * 1000; w.lastBeep = -1;
+  toast(`Set ${w.set} done (${reason}). Rest ${PLAN.rest} s`);
+  if (PLAN.rest <= 0) { beginSet(w.set + 1); return; }
+  renderWk(); onTick();
+}
+function onTick() {
+  const w = S.wk;
+  $('wkClock').textContent = fmt(wkElapsed());
+  if (w.phase !== 'rest' || w.paused) return;
+  const left = Math.ceil((w.restEnd - Date.now()) / 1000);
+  $('restLeft').textContent = fmt(left);
+  if (left <= 3 && left >= 1 && left !== w.lastBeep) { w.lastBeep = left; beep(880, 90); }
+  if (left <= 0) beginSet(w.set + 1);
+}
+function togglePause() {
+  const w = S.wk;
+  if (w.phase === 'idle' || w.phase === 'done') return;
+  if (!w.paused) {
+    w.paused = true; w.pausedAt = Date.now(); w.restLeft = w.restEnd - Date.now();
+    if (w.running) { w.running = false; send(CMD.PAUSE); }
+  } else {
+    w.pausedMs += Date.now() - w.pausedAt; w.paused = false;
+    if (w.phase === 'rest') w.restEnd = Date.now() + w.restLeft;
+    if (w.phase === 'set') { w.running = true; send(CMD.START); }
+  }
+  renderWk(); renderDS();
+}
+function finishWk() {
+  const w = S.wk;
+  if (w.phase === 'idle') return;
+  if (w.phase === 'set' && w.reps.some(r => r.set === w.set)) endSetSilently();
+  clearInterval(tick);
+  if (w.running) send(CMD.PAUSE);
+  try { wakeLock?.release(); } catch (_) {}
+  if (w.reps.length) {
+    const unit = S.unitKg ? 'kg' : 'lb';
+    const two = w.reps.some(r => r.side === 1);
+    const entry = {
+      date: new Date().toISOString(), seconds: Math.round(wkElapsed()), reps: w.reps.length,
+      volume: Math.round(w.reps.reduce((a, r) => a + r.load, 0)), unit,
+      kcal: +(w.work / 4184 / 0.25).toFixed(1), mode: MODES.find(m => m.id === S.mode)?.name,
+      topSpeed: Math.max(...w.reps.map(r => r.peak)), bestMean: Math.max(...w.reps.map(r => r.mean)),
+      peakPower: Math.max(...w.reps.map(r => r.power)), sets: w.sets, repLog: w.reps,
+      drops: w.sets.flatMap(x => x.drops),
+      ...(two ? { repsL: w.reps.filter(r => r.side === 0).length, repsR: w.reps.filter(r => r.side === 1).length } : {}),
+    };
+    const h = loadHist(); h.unshift(entry); saveHist(h); renderHist();
+    toast('Workout saved');
+  } else toast('No reps recorded, nothing saved');
+  Object.assign(w, newWk());
+  $('wkClock').textContent = '0:00';
+  renderWk(); renderDS(); renderVbt(); drawChart(); renderWkStats();
+}
+function endSetSilently() {   // finishing mid-set: keep the set in the summary without starting a rest
+  const w = S.wk, reps = w.reps.filter(r => r.set === w.set);
+  w.sets.push({ set: w.set, reps: Math.max(...[0, 1].map(sd => reps.filter(r => r.side === sd).length)), load: w.setW,
+    bestMean: Math.max(0, ...reps.map(r => r.mean)), lastLoss: 0, drops: (w.ds?.drops || []).map(d => d.to), end: 'finished' });
+}
+function renderWk() {
+  const w = S.wk, chip = $('wkSet');
+  const target = PLAN.reps > 0 ? ` × ${PLAN.reps}` : '';
+  $('planChip').textContent = `${PLAN.sets}${PLAN.reps > 0 ? ' × ' + PLAN.reps : ' sets, open'}${PLAN.vl ? ` · stop at −${PLAN.vl}%` : ''}`;
+  $('restBox').hidden = w.phase !== 'rest';
+  if (w.phase === 'idle') { chip.textContent = `Plan: ${PLAN.sets} set${PLAN.sets > 1 ? 's' : ''}${target}`; chip.className = 'pill'; }
+  else if (w.phase === 'set') { const n = Math.max(0, ...Object.values(w.side).map(x => x.n)); chip.textContent = `Set ${w.set}/${PLAN.sets} · ${n}${PLAN.reps > 0 ? '/' + PLAN.reps : ''} reps${w.paused ? ' · paused' : ''}`; chip.className = 'pill on'; }
+  else if (w.phase === 'rest') { chip.textContent = `Rest · next set ${w.set + 1}/${PLAN.sets}${w.paused ? ' · paused' : ''}`; chip.className = 'pill demo'; }
+  else { chip.textContent = 'Workout complete'; chip.className = 'pill on'; }
+  if (w.phase === 'rest') {
+    const unit = S.unitKg ? 'kg' : 'lb', nextW = (w.ds?.drops.length && DS.on) ? w.setW : primaryWeight();
+    $('restNext').textContent = `Next: set ${w.set + 1} of ${PLAN.sets}${PLAN.reps ? ` · ${PLAN.reps} reps` : ''}${nextW != null ? ` @ ${nextW} ${unit}` : ''}`;
+  }
+  const st = $('wkStart');
+  st.textContent = w.phase === 'idle' ? 'Start' : w.paused ? 'Resume' : 'Pause';
+  st.className = w.phase === 'idle' || w.paused ? 'primary' : '';
+  $('wkEndSet').disabled = w.phase !== 'set';
+  $('wkFinish').disabled = w.phase === 'idle';
+}
+$('wkStart').onclick = () => (S.wk.phase === 'idle' ? startWorkout() : togglePause());
+$('wkEndSet').onclick = () => endSet('ended by you');
+$('wkFinish').onclick = finishWk;
+$('restSkip').onclick = () => { if (S.wk.phase === 'rest') beginSet(S.wk.set + 1); };
+$('restPlus').onclick = () => { if (S.wk.phase === 'rest') { S.wk.restEnd += 15000; S.wk.restLeft += 15000; onTick(); } };
+$('restMinus').onclick = () => { if (S.wk.phase === 'rest') { S.wk.restEnd -= 15000; S.wk.restLeft -= 15000; onTick(); } };
+for (const [id, k, lo, hi] of [['pSets', 'sets', 1, 20], ['pReps', 'reps', 0, 100], ['pRest', 'rest', 0, 600], ['pVl', 'vl', 0, 60]]) {
+  $(id).value = PLAN[k];
+  $(id).onchange = e => { const v = Math.round(+e.target.value); PLAN[k] = Math.min(hi, Math.max(lo, isFinite(v) ? v : PLAN[k])); e.target.value = PLAN[k]; savePlan(); renderWk(); renderVbt(); };
+}
+$('chartMetric').value = chartMetric;
+$('chartMetric').onchange = e => { chartMetric = e.target.value; try { localStorage.setItem('pumpdeck.chartMetric', chartMetric); } catch (_) {} drawChart(); };
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && S.wk.phase !== 'idle') try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (_) {}
+});
+
 /* ================= Auto drop set =================
    Per side, the first DS.ref full reps at a weight set a reference (mean peak pull speed and
    rope range). A later rep below speed% or range% of that reference triggers a drop: every
@@ -1076,6 +1328,7 @@ function renderDS() {
   else if (ds?.done) { chip.textContent = `Done · ${nDrops}/${DS.max}`; chip.className = 'pill on'; }
   else { chip.textContent = `${w.running ? 'Armed' : 'Ready'} · ${nDrops}/${DS.max}`; chip.className = 'pill demo'; }
   if (!DS.on) { msg.textContent = `The first ${DS.ref} full reps at each weight set your reference speed and range. When a rep gets slower or shorter than that, the next one is lighter.`; return; }
+  if (w.phase === 'rest' || w.phase === 'done') { msg.textContent = `Resting. The next set starts from ${w.setW ?? 'the same'} ${S.unitKg ? 'kg' : 'lb'} with a fresh reference.`; return; }
   if (!w.running || !ds) { msg.textContent = `Start a workout. After ${DS.ref} reference reps, a rep below ${DS.speed}% speed or ${DS.range}% range lowers the load by ${DS.pct}%, up to ${DS.max}×.`; return; }
   const parts = Object.entries(ds.side).map(([side, st]) => {
     const name = S.pumps.length > 1 ? (side === '0' ? 'L' : 'R') + ': ' : '';
@@ -1096,105 +1349,65 @@ function renderWkStats() {
   $('wkVol').textContent = Math.round(vol);
   $('wkKcal').textContent = (w.work / 4184 / 0.25).toFixed(1);
 }
-async function startWk() {
-  const w = S.wk;
-  if (!S.pumps.length) { toast('Connect a pump first'); return; }
-  if (w.running) { // pause
-    w.running = false; w.elapsed += (Date.now() - w.started) / 1000; clearInterval(tick);
-    send(CMD.PAUSE); $('wkStart').textContent = 'Resume';
-    try { await wakeLock?.release(); } catch (_) {}
-    return;
-  }
-  if (!w.elapsed) {
-    const reps = S.pumps.reduce((a, x) => a + (x.status?.reps || 0), 0);
-    dsReset();
-    Object.assign(w, { baseReps: reps, basePer: Object.fromEntries(S.pumps.map(x => [x.id, x.status?.reps || 0])), reps: [], side: {}, work: 0 });
-    drawChart(); renderWkStats();
-  }
-  w.running = true; w.started = Date.now(); renderDS();
-  send(CMD.START);
-  tick = setInterval(() => ($('wkClock').textContent = fmt(w.elapsed + (Date.now() - w.started) / 1000)), 250);
-  $('wkStart').textContent = 'Pause'; $('wkFinish').disabled = false;
-  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (_) {}
-}
-function finishWk() {
-  const w = S.wk;
-  if (w.running) { w.elapsed += (Date.now() - w.started) / 1000; clearInterval(tick); send(CMD.PAUSE); }
-  try { wakeLock?.release(); } catch (_) {}
-  if (w.reps.length) {
-    const unit = S.unitKg ? 'kg' : 'lb';
-    const two = w.reps.some(r => r.side === 1);
-    const entry = {
-      date: new Date().toISOString(), seconds: Math.round(w.elapsed), reps: w.reps.length,
-      volume: Math.round(w.reps.reduce((a, r) => a + r.load, 0)), unit,
-      kcal: +(w.work / 4184 / 0.25).toFixed(1), mode: MODES.find(m => m.id === S.mode)?.name,
-      topSpeed: Math.max(...w.reps.map(r => r.peak)), repLog: w.reps,
-      drops: w.ds?.drops || [],
-      ...(two ? { repsL: w.reps.filter(r => r.side === 0).length, repsR: w.reps.filter(r => r.side === 1).length } : {}),
-    };
-    const h = loadHist(); h.unshift(entry); saveHist(h); renderHist();
-    toast('Workout saved');
-  } else toast('No reps recorded, nothing saved');
-  Object.assign(w, { running: false, elapsed: 0, reps: [], side: {}, work: 0 });
-  $('wkClock').textContent = '0:00'; $('wkStart').textContent = 'Start'; $('wkFinish').disabled = true;
-  w.ds = null; renderDS();
-  drawChart(); renderWkStats();
-}
-$('wkStart').onclick = startWk;
-$('wkFinish').onclick = finishWk;
-document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState === 'visible' && S.wk.running) try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (_) {}
-});
 
 function drawChart() {
   const c = $('chart'), dpr = window.devicePixelRatio || 1;
   const W = c.clientWidth, H = c.clientHeight;
+  if (!W) return;
   c.width = W * dpr; c.height = H * dpr;
   const g = c.getContext('2d'); g.scale(dpr, dpr);
   const css = getComputedStyle(document.documentElement);
   const muted = css.getPropertyValue('--muted').trim(), acc = css.getPropertyValue('--accent').trim(), line = css.getPropertyValue('--line').trim();
-  const good = css.getPropertyValue('--good').trim(), colors = [acc, good];
-  const all = S.wk.reps;
+  const fg = css.getPropertyValue('--fg').trim(), good = css.getPropertyValue('--good').trim(), colors = [acc, good];
+  const w = S.wk, set = w.set;
+  const all = w.reps.filter(r => r.set === set);       // current set (or the one just finished)
+  const M = { peak: { k: 'peak', u: 'm/s', step: 0.5, d: 1 }, mean: { k: 'mean', u: 'm/s', step: 0.5, d: 1 }, power: { k: 'power', u: 'W', step: 100, d: 0 } }[chartMetric];
+  $('chartTitle').textContent = set ? `Set ${set}: ${{ peak: 'peak speed', mean: 'mean speed', power: 'power' }[chartMetric]} per rep` : 'Reps appear here once you start';
   g.font = '12px ' + css.getPropertyValue('--font-body');
-  if (!all.length) { g.fillStyle = muted; g.textAlign = 'center'; g.fillText('Rep speeds appear here once you start', W / 2, H / 2 + 4); return; }
+  if (!all.length) { g.fillStyle = muted; g.textAlign = 'center'; g.fillText(set ? 'Waiting for the first rep…' : 'Bars for each rep appear here once you start', W / 2, H / 2 + 4); return; }
   const sides = all.some(r => r.side === 1) ? 2 : 1;
-  // group by rep number: rep 1 left next to rep 1 right, and so on
   const maxN = Math.max(...all.map(r => r.n));
   const groups = Math.min(maxN, sides === 2 ? 20 : 40);
   const firstN = maxN - groups + 1;
   const shown = all.filter(r => r.n >= firstN);
-  const top = Math.max(1, Math.ceil(Math.max(...shown.map(r => r.peak)) * 2) / 2);
-  const padL = 34, padB = 18, padT = sides === 2 ? 20 : 10, ih = H - padB - padT, iw = W - padL - 8;
+  const top = Math.max(M.step * 2, Math.ceil(Math.max(...shown.map(r => r[M.k])) / M.step) * M.step);
+  const padL = 38, padB = 18, padT = sides === 2 ? 20 : 10, ih = H - padB - padT, iw = W - padL - 8;
   g.strokeStyle = line; g.fillStyle = muted; g.textAlign = 'right'; g.lineWidth = 1;
   for (const v of [0, top / 2, top]) {
     const y = padT + ih - (v / top) * ih;
     g.beginPath(); g.moveTo(padL, y + .5); g.lineTo(W - 8, y + .5); g.stroke();
-    g.fillText(v.toFixed(1), padL - 6, y + 4);
+    g.fillText(v.toFixed(M.d), padL - 6, y + 4);
   }
   const gw = iw / Math.max(groups, sides === 2 ? 6 : 8);
   const gap = Math.min(4, gw * 0.15), bw = Math.max(2, (gw - gap * 2) / sides);
   const latest = all[all.length - 1];
   for (const r of shown) {
-    const h = (r.peak / top) * ih;
+    const h = (r[M.k] / top) * ih;
     const x = padL + (r.n - firstN) * gw + gap + r.side * bw;
     g.fillStyle = colors[r.side] + (r === latest ? '' : '99');
     g.fillRect(x, padT + ih - h, Math.max(1.5, bw - (sides === 2 ? 1 : 0)), h);
   }
+  // velocity-loss threshold: dashed line at best mean × (1 − loss%)
+  if (chartMetric === 'mean' && PLAN.vl > 0) {
+    for (const sdIdx of [0, 1]) {
+      const rs = all.filter(r => r.side === sdIdx); if (!rs.length) continue;
+      const thr = Math.max(...rs.map(r => r.mean)) * (1 - PLAN.vl / 100), y = Math.round(padT + ih - (thr / top) * ih) + .5;
+      g.save(); g.setLineDash([2, 4]); g.strokeStyle = colors[sdIdx]; g.beginPath(); g.moveTo(padL, y); g.lineTo(W - 8, y); g.stroke(); g.restore();
+    }
+  }
   // drop-set markers: dashed line before the first rep at the new weight
-  for (const d of S.wk.ds?.drops || []) {
+  for (const d of (w.ds?.drops || [])) {
     if (d.afterN + 1 < firstN || d.afterN + 1 > firstN + groups) continue;
     const x = Math.round(padL + (d.afterN + 1 - firstN) * gw) + .5;
-    g.save(); g.setLineDash([3, 3]); g.strokeStyle = css.getPropertyValue('--fg').trim(); g.globalAlpha = .7;
+    g.save(); g.setLineDash([3, 3]); g.strokeStyle = fg; g.globalAlpha = .7;
     g.beginPath(); g.moveTo(x, padT); g.lineTo(x, padT + ih); g.stroke(); g.restore();
-    g.fillStyle = css.getPropertyValue('--fg').trim(); g.textAlign = 'left'; g.font = '11px ' + css.getPropertyValue('--font-body');
+    g.fillStyle = fg; g.textAlign = 'left'; g.font = '11px ' + css.getPropertyValue('--font-body');
     g.fillText(`↓${d.to}`, x + 3, padT + ih - 4);
   }
   g.font = '12px ' + css.getPropertyValue('--font-body');
   g.fillStyle = muted; g.textAlign = 'left';
-  g.fillText(`m/s · last ${groups} reps${sides === 2 ? ' per side' : ''}`, padL, H - 3);
-  if (sides === 2) {
-    ['Left', 'Right'].forEach((n, i) => { g.fillStyle = colors[i]; g.fillText(n, padL + 6 + i * 44, 13); });
-  }
+  g.fillText(`${M.u} · ${groups} rep${groups > 1 ? 's' : ''}${sides === 2 ? ' per side' : ''}`, padL, H - 3);
+  if (sides === 2) ['Left', 'Right'].forEach((n, i) => { g.fillStyle = colors[i]; g.fillText(n, padL + 6 + i * 44, 13); });
 }
 window.addEventListener('resize', drawChart);
 
@@ -1209,7 +1422,7 @@ function renderHist() {
   for (const e of h.slice(0, 20)) {
     const d = new Date(e.date);
     const el = document.createElement('div'); el.className = 'item';
-    el.innerHTML = `<div><div>${e.mode || 'Workout'} · ${e.reps} reps${e.repsR != null ? ` (${e.repsL} L / ${e.repsR} R)` : ''}${e.drops?.length ? ` · ${e.drops.length} drop${e.drops.length > 1 ? 's' : ''}` : ''} · ${fmt(e.seconds)}</div><div class="d">${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · top ${e.topSpeed?.toFixed?.(1) ?? '–'} m/s · ~${e.kcal} kcal</div></div><div class="big num">${e.volume} ${e.unit}</div>`;
+    el.innerHTML = `<div><div>${e.mode || 'Workout'} · ${e.reps} reps${e.repsR != null ? ` (${e.repsL} L / ${e.repsR} R)` : ''}${e.sets?.length ? ` · ${e.sets.length} set${e.sets.length > 1 ? 's' : ''}` : ''}${e.drops?.length ? ` · ${e.drops.length} drop${e.drops.length > 1 ? 's' : ''}` : ''} · ${fmt(e.seconds)}</div><div class="d">${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · top ${e.topSpeed?.toFixed?.(1) ?? '–'} m/s${e.peakPower ? ` · ${e.peakPower} W` : ''} · ~${e.kcal} kcal</div></div><div class="big num">${e.volume} ${e.unit}</div>`;
     box.appendChild(el);
   }
 }
@@ -1327,7 +1540,7 @@ $('btnDemo').onclick = () => {
 /* ================= Boot ================= */
 if (!navigator.bluetooth) $('noBt').hidden = false;
 renderModes(); renderLoad(); renderPumps(); renderHist(); renderInfo(); drawChart();
-renderAuto(); scheduleAuto(400); renderDS();
+renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
