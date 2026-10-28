@@ -163,7 +163,7 @@ details .inner { display: grid; gap: 12px; }
   </header>
 
   <div id="noBt" class="notice" hidden>
-    <strong>Bluetooth isn't available here.</strong> Open this page over HTTPS in Chrome on Android (or the Bluefy browser on iPhone), with Bluetooth and location switched on. You can still try the controls with <em>Demo pump</em>.
+    <strong>Bluetooth isn't available here.</strong> Open this page over HTTPS in Chrome on Android (or the Bluefy browser on iPhone), with Bluetooth and location switched on. You can still try everything with <em>Demo (2 pumps)</em>.
   </div>
 
   <section class="card" aria-labelledby="h-pumps">
@@ -500,9 +500,16 @@ function disconnect(p) {
 function connectDemo() {
   if (S.pumps.length >= 2) { toast('Two pumps are already connected'); return; }
   const n = S.pumps.filter(p => p.demo).length + 1;
-  const sim = { weight: 10, mode: 1, ecc: 0, conc: 0, chain: 0, unitKg: true, reps: 0, counting: true, t: 0, len: 0, lastPhase: 0, batt: 87 };
+  // Two different "athletes": the second one pulls a bit slower and shorter, drifts in tempo,
+  // explodes on the pull and lowers slowly, and pauses briefly at the top.
+  const PROFILES = [
+    { rate: 2.2, amp: 30, drift: 0.08, ease: 1.0, hold: 0,    noise: 0.3, batt: 87, ph: 0 },
+    { rate: 1.8, amp: 25, drift: 0.18, ease: 1.6, hold: 0.15, noise: 0.6, batt: 64, ph: 1.4 },
+  ];
+  const prof = PROFILES[(n - 1) % 2];
+  const sim = { weight: 10, mode: 1, ecc: 0, conc: 0, chain: 0, unitKg: true, reps: 0, counting: true,
+    t: 0, ph: prof.ph, lenCm: null, batt: prof.batt, prof };
   const pump = { id: 'demo' + n, name: n > 1 ? `Demo pump ${n}` : 'Demo pump', model: 'TC-JS-P1', demo: true, sim };
-  if (n > 1) sim.t = 0.7;   // slightly out of phase with the first one
   const read = makeReader(pump);
   const reply = (cmd, data) => read(Array.from(frame(cmd, data)));
   pump.write = async bytes => {
@@ -521,16 +528,27 @@ function connectDemo() {
     if (cmd === CMD.SN) setTimeout(() => reply(CMD.SN, Array.from('DEMO0001', c => c.charCodeAt(0))), 60);
   };
   pump.timer = setInterval(() => {
-    sim.t += 0.1;
-    const phase = Math.sin(sim.t * 2.2);            // one rep ≈ 2.9 s
-    sim.len = Math.max(0, Math.round(30 * (phase + 1) / 2));   // ≈0–66 cm
-    const speed = Math.round(Math.abs(Math.cos(sim.t * 2.2)) * 0.9 * 300000 / (35 * Math.PI)); // ≈0–0.9 m/s
-    if (sim.lastPhase < 0 && phase >= 0 && sim.counting) sim.reps++;
-    sim.lastPhase = phase;
-    const d = [...u16(8120), ...u16(Math.round(phase * 900) & 0xffff), sim.batt, 31,
+    const P = sim.prof, dt = 0.1;
+    sim.t += dt;
+    // heavier load → slightly slower reps
+    const tempo = P.rate * (1 + P.drift * Math.sin(sim.t * 0.35 + P.ph)) * (1 - Math.min(0.35, (sim.weight - 5) / 80));
+    const before = Math.floor(sim.ph / (2 * Math.PI));
+    let x = (1 - Math.cos(sim.ph)) / 2;              // 0 = rope in, 1 = fully out
+    const atTop = x > 0.97;
+    sim.ph += tempo * dt * (atTop && P.hold ? 1 - P.hold * 3 : 1);
+    if (Math.floor(sim.ph / (2 * Math.PI)) > before && sim.counting) sim.reps++;
+    x = (1 - Math.cos(sim.ph)) / 2;
+    const pulling = Math.sin(sim.ph) > 0;
+    const shaped = pulling ? Math.pow(x, 1 / P.ease) : Math.pow(x, P.ease);   // fast out, slow back
+    const lenCm = Math.max(0, countsToCm(P.amp) * shaped + (Math.random() - 0.5) * P.noise);
+    const speedMs = sim.lenCm == null ? 0 : Math.abs(lenCm - sim.lenCm) / 100 / dt;
+    sim.lenCm = lenCm;
+    const lenCounts = Math.round(lenCm / countsToCm(1));
+    const speed = Math.round(speedMs * 300000 / (35 * Math.PI));
+    const d = [...u16(8120), ...u16(Math.round((pulling ? 1 : -1) * speedMs * 1500) & 0xffff), sim.batt, 31,
       ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
-      sim.mode, ...u16(sim.weight), ...u16(speed), ...u16(sim.len), sim.ecc, sim.conc, sim.chain,
-      ...u16(30), ...u16(sim.reps), 0, sim.unitKg ? 1 : 2];
+      sim.mode, ...u16(sim.weight), ...u16(speed), ...u16(lenCounts), sim.ecc, sim.conc, sim.chain,
+      ...u16(P.amp), ...u16(sim.reps), 0, sim.unitKg ? 1 : 2];
     const f = Array.from(frame(CMD.STATUS, d));
     read(f.slice(0, 20)); read(f.slice(20));       // arrive split, like a 20-byte MTU link
   }, 100);
@@ -904,7 +922,7 @@ function renderPumps(statusOnly) {
   $('btnConnect').textContent = S.pumps.length ? 'Add second pump' : 'Connect pump';
   $('btnConnect').disabled = S.pumps.length >= 2;
   $('btnDemo').disabled = S.pumps.length >= 2;
-  $('btnDemo').textContent = S.pumps.some(p => p.demo) ? 'Add demo pump' : 'Demo pump';
+  $('btnDemo').textContent = S.pumps.length ? 'Add demo pump' : 'Demo (2 pumps)';
   if (S.pumps.length < 2) syncState = '';
   renderSync();
   if (!S.pumps.length) { box.innerHTML = '<p class="empty">No pump connected. Switch the pump on, then tap <em>Connect pump</em>. Connect a second one for two-handed training.</p>'; return; }
@@ -960,7 +978,11 @@ $('syncChk').onchange = e => {
   syncState = ''; renderSync();
 };
 $('btnConnect').onclick = connectReal;
-$('btnDemo').onclick = connectDemo;
+$('btnDemo').onclick = () => {
+  const start = S.pumps.length;
+  connectDemo();
+  if (start === 0) setTimeout(connectDemo, 150);   // fresh start: bring up a left and a right pump
+};
 
 /* ================= Boot ================= */
 if (!navigator.bluetooth) $('noBt').hidden = false;
