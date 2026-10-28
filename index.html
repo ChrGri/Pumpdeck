@@ -80,6 +80,11 @@ section.card { background: var(--panel); border-radius: var(--r); padding: 16px;
 .sync label { display: flex; align-items: center; gap: 10px; font-weight: 600; min-height: 32px; }
 .sync input { width: 22px; height: 22px; accent-color: var(--accent); }
 .sync .hint { grid-column: 1 / -1; }
+.ds-grid { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.ds-grid label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 500; font-size: .9rem; color: var(--muted); min-height: 0; }
+.ds-grid span { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); }
+.ds-grid input { width: 58px; height: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 380px) { .ds-grid { grid-template-columns: 1fr; } }
 .row { display: flex; gap: 10px; flex-wrap: wrap; }
 .row > button { flex: 1 1 140px; }
 
@@ -258,6 +263,17 @@ details .inner { display: grid; gap: 12px; }
       </div>
     </div>
     <canvas id="chart" aria-label="Peak speed of each rep"></canvas>
+    <div class="sync ds">
+      <label for="dsOn"><input id="dsOn" type="checkbox"> Auto drop set</label>
+      <span id="dsChip" class="pill">Off</span>
+      <div class="ds-grid">
+        <label for="dsPct">Drop by<span><input id="dsPct" type="number" inputmode="numeric" min="5" max="50" step="5" value="20"> %</span></label>
+        <label for="dsMax">Max drops<span><input id="dsMax" type="number" inputmode="numeric" min="1" max="10" step="1" value="3"></span></label>
+        <label for="dsSpeed">Speed <label for="dsSpeed">when speed &lt;<span>lt;<span><input id="dsSpeed" type="number" inputmode="numeric" min="30" max="100" step="5" value="75"> %</span></label>
+        <label for="dsRange">Range <label for="dsRange">or range &lt;<span>lt;<span><input id="dsRange" type="number" inputmode="numeric" min="30" max="100" step="5" value="80"> %</span></label>
+      </div>
+      <p id="dsMsg" class="hint">The first 2 full reps at each weight set your reference speed and range. When a rep gets slower or shorter than that, the next one is lighter.</p>
+    </div>
     <div class="row">
       <button id="wkStart" class="primary" type="button">Start</button>
       <button id="wkFinish" type="button" disabled>Finish &amp; save</button>
@@ -661,13 +677,13 @@ function connectDemo() {
   ];
   const prof = PROFILES[(n - 1) % 2];
   const sim = { weight: 10, mode: 1, ecc: 0, conc: 0, chain: 0, unitKg: true, reps: 0, counting: true,
-    t: 0, ph: prof.ph, lenCm: null, temp: prof.temp0, batt: prof.batt, prof };
+    t: 0, ph: prof.ph, lenCm: null, temp: prof.temp0, batt: prof.batt, prof, fat: 0 };
   const pump = { id: 'demo' + n, name: n > 1 ? `Demo pump ${n}` : 'Demo pump', model: 'TC-JS-P1', demo: true, sim };
   const read = makeReader(pump);
   const reply = (cmd, data) => read(Array.from(frame(cmd, data)));
   pump.write = async bytes => {
     const cmd = (bytes[2] << 8) | bytes[3], d = bytes.slice(5, 5 + bytes[4]);
-    if (cmd === CMD.WEIGHT) sim.weight = (d[0] << 8) | d[1];
+    if (cmd === CMD.WEIGHT) { const nw = (d[0] << 8) | d[1]; if (nw < sim.weight) sim.fat *= 0.55; sim.weight = nw; }   // lighter → feels fresher
     if (cmd === CMD.MODE) sim.mode = d[0];
     if (cmd === CMD.ECC) sim.ecc = d[0];
     if (cmd === CMD.CONC) sim.conc = d[0];
@@ -684,16 +700,19 @@ function connectDemo() {
     const P = sim.prof, dt = 0.1;
     sim.t += dt;
     // heavier load → slightly slower reps
-    const tempo = P.rate * (1 + P.drift * Math.sin(sim.t * 0.35 + P.ph)) * (1 - Math.min(0.35, (sim.weight - 5) / 80));
+    // fatigue builds with every rep (more with more load) and slows the athlete down
+    sim.fat = Math.max(0, sim.fat - 0.0006);
+    const tempo = P.rate * (1 + P.drift * Math.sin(sim.t * 0.35 + P.ph)) * (1 - Math.min(0.35, (sim.weight - 5) / 80)) * Math.max(0.45, 1 - sim.fat);
     const before = Math.floor(sim.ph / (2 * Math.PI));
     let x = (1 - Math.cos(sim.ph)) / 2;              // 0 = rope in, 1 = fully out
     const atTop = x > 0.97;
     sim.ph += tempo * dt * (atTop && P.hold ? 1 - P.hold * 3 : 1);
-    if (Math.floor(sim.ph / (2 * Math.PI)) > before && sim.counting) sim.reps++;
+    if (Math.floor(sim.ph / (2 * Math.PI)) > before) { if (sim.counting) sim.reps++; sim.fat += sim.weight / 260; }
     x = (1 - Math.cos(sim.ph)) / 2;
     const pulling = Math.sin(sim.ph) > 0;
     const shaped = pulling ? Math.pow(x, 1 / P.ease) : Math.pow(x, P.ease);   // fast out, slow back
-    const lenCm = Math.max(0, countsToCm(P.amp) * shaped + (Math.random() - 0.5) * P.noise);
+    const ampF = sim.fat > 0.3 ? Math.max(0.55, 1 - (sim.fat - 0.3) * 1.2) : 1;   // tired → partial reps
+    const lenCm = Math.max(0, countsToCm(P.amp) * ampF * shaped + (Math.random() - 0.5) * P.noise);
     const speedMs = sim.lenCm == null ? 0 : Math.abs(lenCm - sim.lenCm) / 100 / dt;
     sim.lenCm = lenCm;
     // motor warms with load × speed and cools toward 24 °C
@@ -985,21 +1004,92 @@ function trackWorkout(all) {
   let changed = false;
   for (const p of all) {
     const side = S.pumps.indexOf(p);
-    const sd = w.side[p.id] || (w.side[p.id] = { last: p.status.reps, peak: 0, n: 0 });
+    const sd = w.side[p.id] || (w.side[p.id] = { last: p.status.reps, peak: 0, n: 0, lo: Infinity, hi: -Infinity });
     sd.peak = Math.max(sd.peak, signedMs(p));   // peak pulling speed (positive side)
+    const cm = countsToCm(p.status.length);
+    sd.lo = Math.min(sd.lo, cm); sd.hi = Math.max(sd.hi, cm);   // rope travel within this rep
     if (p.status.reps > sd.last) {
       const load = p.status.weight;
       const travelM = countsToCm(p.status.pullLength || 0) / 100;
       for (let i = sd.last; i < p.status.reps; i++) {
         sd.n++;
-        w.reps.push({ side, n: sd.n, peak: +sd.peak.toFixed(2), load });
-        w.work += kgOf(load) * 9.81 * (travelM || 0.5);
+        const range = Math.max(0, sd.hi - sd.lo);
+        const r = { side, n: sd.n, peak: +sd.peak.toFixed(2), range: Math.round(range), load };
+        w.reps.push(r);
+        w.work += kgOf(load) * 9.81 * (range / 100 || travelM || 0.5);
+        evalDrop(r);
       }
-      sd.last = p.status.reps; sd.peak = 0; changed = true;
+      sd.last = p.status.reps; sd.peak = 0; sd.lo = cm; sd.hi = cm; changed = true;
     } else if (p.status.reps < sd.last) sd.last = p.status.reps;   // counter was reset on the pump
   }
   if (changed) { drawChart(); renderWkStats(); }
 }
+/* ================= Auto drop set =================
+   Per side, the first DS.ref full reps at a weight set a reference (mean peak pull speed and
+   rope range). A later rep below speed% or range% of that reference triggers a drop: every
+   pump's resistance goes down by pct%, then a new reference is measured at the new weight. */
+const DSK = 'pumpdeck.dropset.v1';
+const DS = { on: false, pct: 20, max: 3, speed: 75, range: 80, ref: 2 };
+try { Object.assign(DS, JSON.parse(localStorage.getItem(DSK)) || {}); } catch (_) {}
+function saveDS() { try { localStorage.setItem(DSK, JSON.stringify(DS)); } catch (_) {} }
+function dsReset() { S.wk.ds = { side: {}, drops: [], done: false }; renderDS(); }
+function evalDrop(r) {
+  const w = S.wk;
+  if (!DS.on || !w.ds || w.ds.done) return;
+  const st = w.ds.side[r.side] || (w.ds.side[r.side] = { cnt: 0, sumP: 0, sumR: 0, skip: 1 });
+  if (st.skip > 0) { st.skip--; renderDS(); return; }        // first rep at a new weight is a settling rep
+  if (st.cnt < DS.ref) {
+    st.cnt++; st.sumP += r.peak; st.sumR += r.range; renderDS(); return;
+  }
+  const refP = st.sumP / st.cnt, refR = st.sumR / st.cnt;
+  const slow = r.peak < refP * DS.speed / 100;
+  const short = refR >= 5 && r.range < refR * DS.range / 100;
+  if (slow || short) doDrop(slow && short ? 'slower and shorter' : slow ? 'slower' : 'shorter', r);
+}
+function doDrop(reason, r) {
+  const w = S.wk, [mn] = lim(), unit = S.unitKg ? 'kg' : 'lb';
+  const changes = [];
+  for (const p of S.pumps) {
+    if (!p.status) continue;
+    const cur = p.status.weight, nw = Math.max(mn, Math.round(cur * (1 - DS.pct / 100)));
+    if (nw < cur) { changes.push([cur, nw]); p.write(frame(CMD.WEIGHT, u16(nw))).catch(() => {}); }
+  }
+  holdSync(2500);
+  if (!changes.length) { w.ds.done = true; toast(`Drop set: already at the minimum (${mn} ${unit})`); renderDS(); return; }
+  const [from, to] = changes[0];
+  S.target = to; renderLoad();
+  const afterN = Math.max(0, ...Object.values(w.side).map(x => x.n));
+  w.ds.drops.push({ afterN, from, to, reason });
+  w.ds.side = {};                                             // measure a new reference at the new weight
+  if (w.ds.drops.length >= DS.max) w.ds.done = true;
+  log('tx', `drop set: rep ${r.n} ${reason} (${r.peak} m/s, ${r.range} cm) → ${from} → ${to} ${unit}`);
+  toast(`Drop ${w.ds.drops.length}: ${from} → ${to} ${unit} (${reason})`);
+  try { navigator.vibrate?.([120, 60, 120]); } catch (_) {}
+  renderDS(); drawChart();
+}
+function renderDS() {
+  $('dsOn').checked = DS.on;
+  for (const k of ['pct', 'max', 'speed', 'range']) { const el = $('ds' + k[0].toUpperCase() + k.slice(1)); if (document.activeElement !== el) el.value = DS[k]; }
+  const chip = $('dsChip'), msg = $('dsMsg'), w = S.wk, ds = w.ds;
+  const nDrops = ds?.drops.length || 0;
+  if (!DS.on) { chip.textContent = 'Off'; chip.className = 'pill'; }
+  else if (ds?.done) { chip.textContent = `Done · ${nDrops}/${DS.max}`; chip.className = 'pill on'; }
+  else { chip.textContent = `${w.running ? 'Armed' : 'Ready'} · ${nDrops}/${DS.max}`; chip.className = 'pill demo'; }
+  if (!DS.on) { msg.textContent = `The first ${DS.ref} full reps at each weight set your reference speed and range. When a rep gets slower or shorter than that, the next one is lighter.`; return; }
+  if (!w.running || !ds) { msg.textContent = `Start a workout. After ${DS.ref} reference reps, a rep below ${DS.speed}% speed or ${DS.range}% range lowers the load by ${DS.pct}%, up to ${DS.max}×.`; return; }
+  const parts = Object.entries(ds.side).map(([side, st]) => {
+    const name = S.pumps.length > 1 ? (side === '0' ? 'L' : 'R') + ': ' : '';
+    if (st.skip > 0 || st.cnt < DS.ref) return `${name}measuring ${Math.min(st.cnt + 1, DS.ref)}/${DS.ref}`;
+    return `${name}drop below ${(st.sumP / st.cnt * DS.speed / 100).toFixed(2)} m/s or ${Math.round(st.sumR / st.cnt * DS.range / 100)} cm`;
+  });
+  const last = ds.drops[ds.drops.length - 1];
+  msg.textContent = (parts.join(' · ') || `measuring 1/${DS.ref}`) + (last ? ` · last drop ${last.from}→${last.to}` : '') + (ds.done ? ' · no more drops this set' : '');
+}
+$('dsOn').onchange = e => { DS.on = e.target.checked; saveDS(); if (S.wk.running && !S.wk.ds) dsReset(); renderDS(); };
+for (const [id, k, lo, hi] of [['dsPct', 'pct', 5, 50], ['dsMax', 'max', 1, 10], ['dsSpeed', 'speed', 30, 100], ['dsRange', 'range', 30, 100]]) {
+  $(id).onchange = e => { const v = Math.round(+e.target.value); DS[k] = Math.min(hi, Math.max(lo, isFinite(v) ? v : DS[k])); saveDS(); renderDS(); };
+}
+
 function renderWkStats() {
   const w = S.wk;
   const vol = w.reps.reduce((a, r) => a + r.load, 0);
@@ -1017,10 +1107,11 @@ async function startWk() {
   }
   if (!w.elapsed) {
     const reps = S.pumps.reduce((a, x) => a + (x.status?.reps || 0), 0);
+    dsReset();
     Object.assign(w, { baseReps: reps, basePer: Object.fromEntries(S.pumps.map(x => [x.id, x.status?.reps || 0])), reps: [], side: {}, work: 0 });
     drawChart(); renderWkStats();
   }
-  w.running = true; w.started = Date.now();
+  w.running = true; w.started = Date.now(); renderDS();
   send(CMD.START);
   tick = setInterval(() => ($('wkClock').textContent = fmt(w.elapsed + (Date.now() - w.started) / 1000)), 250);
   $('wkStart').textContent = 'Pause'; $('wkFinish').disabled = false;
@@ -1038,6 +1129,7 @@ function finishWk() {
       volume: Math.round(w.reps.reduce((a, r) => a + r.load, 0)), unit,
       kcal: +(w.work / 4184 / 0.25).toFixed(1), mode: MODES.find(m => m.id === S.mode)?.name,
       topSpeed: Math.max(...w.reps.map(r => r.peak)), repLog: w.reps,
+      drops: w.ds?.drops || [],
       ...(two ? { repsL: w.reps.filter(r => r.side === 0).length, repsR: w.reps.filter(r => r.side === 1).length } : {}),
     };
     const h = loadHist(); h.unshift(entry); saveHist(h); renderHist();
@@ -1045,6 +1137,7 @@ function finishWk() {
   } else toast('No reps recorded, nothing saved');
   Object.assign(w, { running: false, elapsed: 0, reps: [], side: {}, work: 0 });
   $('wkClock').textContent = '0:00'; $('wkStart').textContent = 'Start'; $('wkFinish').disabled = true;
+  w.ds = null; renderDS();
   drawChart(); renderWkStats();
 }
 $('wkStart').onclick = startWk;
@@ -1087,6 +1180,16 @@ function drawChart() {
     g.fillStyle = colors[r.side] + (r === latest ? '' : '99');
     g.fillRect(x, padT + ih - h, Math.max(1.5, bw - (sides === 2 ? 1 : 0)), h);
   }
+  // drop-set markers: dashed line before the first rep at the new weight
+  for (const d of S.wk.ds?.drops || []) {
+    if (d.afterN + 1 < firstN || d.afterN + 1 > firstN + groups) continue;
+    const x = Math.round(padL + (d.afterN + 1 - firstN) * gw) + .5;
+    g.save(); g.setLineDash([3, 3]); g.strokeStyle = css.getPropertyValue('--fg').trim(); g.globalAlpha = .7;
+    g.beginPath(); g.moveTo(x, padT); g.lineTo(x, padT + ih); g.stroke(); g.restore();
+    g.fillStyle = css.getPropertyValue('--fg').trim(); g.textAlign = 'left'; g.font = '11px ' + css.getPropertyValue('--font-body');
+    g.fillText(`↓${d.to}`, x + 3, padT + ih - 4);
+  }
+  g.font = '12px ' + css.getPropertyValue('--font-body');
   g.fillStyle = muted; g.textAlign = 'left';
   g.fillText(`m/s · last ${groups} reps${sides === 2 ? ' per side' : ''}`, padL, H - 3);
   if (sides === 2) {
@@ -1106,7 +1209,7 @@ function renderHist() {
   for (const e of h.slice(0, 20)) {
     const d = new Date(e.date);
     const el = document.createElement('div'); el.className = 'item';
-    el.innerHTML = `<div><div>${e.mode || 'Workout'} · ${e.reps} reps${e.repsR != null ? ` (${e.repsL} L / ${e.repsR} R)` : ''} · ${fmt(e.seconds)}</div><div class="d">${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · top ${e.topSpeed?.toFixed?.(1) ?? '–'} m/s · ~${e.kcal} kcal</div></div><div class="big num">${e.volume} ${e.unit}</div>`;
+    el.innerHTML = `<div><div>${e.mode || 'Workout'} · ${e.reps} reps${e.repsR != null ? ` (${e.repsL} L / ${e.repsR} R)` : ''}${e.drops?.length ? ` · ${e.drops.length} drop${e.drops.length > 1 ? 's' : ''}` : ''} · ${fmt(e.seconds)}</div><div class="d">${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · top ${e.topSpeed?.toFixed?.(1) ?? '–'} m/s · ~${e.kcal} kcal</div></div><div class="big num">${e.volume} ${e.unit}</div>`;
     box.appendChild(el);
   }
 }
@@ -1224,7 +1327,7 @@ $('btnDemo').onclick = () => {
 /* ================= Boot ================= */
 if (!navigator.bluetooth) $('noBt').hidden = false;
 renderModes(); renderLoad(); renderPumps(); renderHist(); renderInfo(); drawChart();
-renderAuto(); scheduleAuto(400);
+renderAuto(); scheduleAuto(400); renderDS();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
