@@ -106,6 +106,14 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; }
 .wk-head { display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; }
 canvas { width: 100%; height: 140px; display: block; background: var(--panel-2); border-radius: 10px; }
 
+/* Live graphs */
+.live-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.win { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .85rem; }
+.win select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-height: 40px; color: var(--fg); }
+.live-k { display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); margin-bottom: -8px; }
+.live-k .num { font-family: var(--font-display); font-size: 1.15rem; color: var(--fg); }
+canvas.live { height: 120px; }
+
 /* History */
 .hist { display: grid; gap: 8px; }
 .hist .item { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; background: var(--panel-2); border-radius: 10px; padding: 10px 12px; font-size: .92rem; }
@@ -177,6 +185,23 @@ details .inner { display: grid; gap: 12px; }
       <div class="stat"><div class="k">Speed</div><div><span id="rSpeed" class="v num">0.0</span><span class="u">m/s</span></div></div>
       <div class="stat"><div class="k">Rope out</div><div><span id="rLen" class="v num">0</span><span class="u">cm</span></div></div>
     </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-live">
+    <div class="live-head">
+      <h2 id="h-live">Live</h2>
+      <label class="win" for="liveWin">Window
+        <select id="liveWin">
+          <option value="10">10 s</option>
+          <option value="30" selected>30 s</option>
+          <option value="60">60 s</option>
+        </select>
+      </label>
+    </div>
+    <div class="live-k"><span>Speed</span><span><span id="lvSpeed" class="num">0.0</span> m/s</span></div>
+    <canvas id="lvSpeedC" class="live" aria-label="Speed over time"></canvas>
+    <div class="live-k"><span>Rope out</span><span><span id="lvLen" class="num">0</span> cm</span></div>
+    <canvas id="lvLenC" class="live" aria-label="Rope length over time"></canvas>
   </section>
 
   <section class="card" aria-labelledby="h-mode">
@@ -302,8 +327,8 @@ function frame(cmd, data = []) {
 }
 const u16 = v => [(v >> 8) & 0xff, v & 0xff];
 const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join(' ').toUpperCase();
-const SPOOL_MM = 35 * Math.PI;           // app: length * π * 35 / 50  (50 counts per turn)
-const countsToCm = n => n * SPOOL_MM / 50 / 10;
+// app: length * π * 35 / 50 — the result is already in cm (confirmed on a real pump)
+const countsToCm = n => n * 35 * Math.PI / 50;
 const speedToMs  = n => n * 35 * Math.PI / 300000;   // app formula
 
 function parseStatus(b) {
@@ -486,14 +511,14 @@ function connectDemo() {
   pump.timer = setInterval(() => {
     sim.t += 0.1;
     const phase = Math.sin(sim.t * 2.2);            // one rep ≈ 2.9 s
-    sim.len = Math.max(0, Math.round(170 * (phase + 1) / 2));
+    sim.len = Math.max(0, Math.round(30 * (phase + 1) / 2));   // ≈0–66 cm
     const speed = Math.round(Math.abs(Math.cos(sim.t * 2.2)) * 0.9 * 300000 / (35 * Math.PI)); // ≈0–0.9 m/s
     if (sim.lastPhase < 0 && phase >= 0 && sim.counting) sim.reps++;
     sim.lastPhase = phase;
     const d = [...u16(8120), ...u16(Math.round(phase * 900) & 0xffff), sim.batt, 31,
       ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
       sim.mode, ...u16(sim.weight), ...u16(speed), ...u16(sim.len), sim.ecc, sim.conc, sim.chain,
-      ...u16(170), ...u16(sim.reps), 0, sim.unitKg ? 1 : 2];
+      ...u16(30), ...u16(sim.reps), 0, sim.unitKg ? 1 : 2];
     const f = Array.from(frame(CMD.STATUS, d));
     read(f.slice(0, 20)); read(f.slice(20));       // arrive split, like a 20-byte MTU link
   }, 100);
@@ -517,8 +542,98 @@ function onStatus(p) {
   $('rSpeed').textContent = speed.toFixed(1);
   $('rLen').textContent = Math.round(len);
   trackWorkout(reps, speed);
+  pushLive(all);
   renderLoad(); renderPumps(true);
 }
+
+/* ================= Live graphs ================= */
+const LIVE_MAX_S = 60;
+const live = [];          // {t, s: [speed per pump], l: [len per pump]}
+let liveWin = 30, liveDirty = false;
+try { const w = +localStorage.getItem('pumpdeck.liveWin'); if ([10, 30, 60].includes(w)) liveWin = w; } catch (_) {}
+$('liveWin').value = String(liveWin);
+$('liveWin').onchange = e => {
+  liveWin = +e.target.value; liveDirty = true;
+  try { localStorage.setItem('pumpdeck.liveWin', liveWin); } catch (_) {}
+};
+let lastLiveT = 0;
+function pushLive(all) {
+  const now = performance.now();
+  if (now - lastLiveT < 40) return;            // one sample per ~40 ms is plenty, even with two pumps
+  lastLiveT = now;
+  live.push({ t: now, s: all.map(x => speedToMs(x.status.speed)), l: all.map(x => countsToCm(x.status.length)) });
+  while (live.length && now - live[0].t > LIVE_MAX_S * 1000 + 1000) live.shift();
+  const last = live[live.length - 1];
+  $('lvSpeed').textContent = Math.max(...last.s).toFixed(2);
+  $('lvLen').textContent = Math.round(Math.max(...last.l));
+  liveDirty = true;
+}
+function niceTop(v, step) { return Math.max(step, Math.ceil(v / step) * step); }
+function drawLive(canvas, key, unit, step, digits) {
+  const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+  if (!W) return;
+  if (canvas.width !== Math.round(W * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
+  const g = canvas.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const css = getComputedStyle(document.documentElement);
+  const muted = css.getPropertyValue('--muted').trim(), line = css.getPropertyValue('--line').trim();
+  const colors = [css.getPropertyValue('--accent').trim(), css.getPropertyValue('--good').trim()];
+  g.font = '11px ' + css.getPropertyValue('--font-body');
+  const now = performance.now(), span = liveWin * 1000;
+  const pts = live.filter(p => now - p.t <= span);
+  const padL = 36, padR = 8, padT = 8, padB = 18, iw = W - padL - padR, ih = H - padT - padB;
+  let top = step;
+  for (const p of pts) for (const v of p[key]) top = Math.max(top, v);
+  top = niceTop(top, step);
+  // grid + y labels
+  g.lineWidth = 1; g.strokeStyle = line; g.fillStyle = muted; g.textAlign = 'right';
+  for (const v of [0, top / 2, top]) {
+    const y = Math.round(padT + ih - (v / top) * ih) + .5;
+    g.beginPath(); g.moveTo(padL, y); g.lineTo(W - padR, y); g.stroke();
+    g.fillText(v.toFixed(digits), padL - 6, y + 4);
+  }
+  // x labels: seconds ago
+  g.textAlign = 'center';
+  const marks = liveWin === 10 ? [10, 5, 0] : liveWin === 30 ? [30, 20, 10, 0] : [60, 45, 30, 15, 0];
+  for (const s of marks) {
+    g.textAlign = s === 0 ? 'right' : s === liveWin ? 'left' : 'center';
+    g.fillText(s ? `−${s}s` : 'now', padL + iw * (1 - s / liveWin), H - 4);
+  }
+  g.textAlign = 'center';
+  if (pts.length < 2) {
+    g.fillStyle = muted; g.fillText('Waiting for pump data…', padL + iw / 2, padT + ih / 2);
+    return;
+  }
+  const series = Math.max(...pts.map(p => p[key].length));
+  for (let k = 0; k < series; k++) {
+    const xy = pts.filter(p => p[key][k] != null).map(p => [padL + iw * (1 - (now - p.t) / span), padT + ih - (p[key][k] / top) * ih]);
+    if (xy.length < 2) continue;
+    g.beginPath(); xy.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+    g.strokeStyle = colors[k % 2]; g.lineWidth = 2; g.lineJoin = 'round'; g.stroke();
+    if (k === 0) { // soft area under the first pump's line
+      g.lineTo(xy[xy.length - 1][0], padT + ih); g.lineTo(xy[0][0], padT + ih); g.closePath();
+      g.fillStyle = colors[0] + '22'; g.fill();
+    }
+    const [ex, ey] = xy[xy.length - 1];
+    g.beginPath(); g.arc(ex, ey, 3, 0, Math.PI * 2); g.fillStyle = colors[k % 2]; g.fill();
+  }
+  if (series > 1) {
+    g.textAlign = 'left';
+    ['Left', 'Right'].forEach((n, i) => { g.fillStyle = colors[i]; g.fillText(n, padL + 6 + i * 44, padT + 10); });
+  }
+}
+let lastDraw = 0;
+function liveLoop(ts) {
+  // redraw ~15×/s while data flows so the window scrolls smoothly
+  if ((liveDirty || live.length) && ts - lastDraw > 66 && document.visibilityState === 'visible') {
+    lastDraw = ts; liveDirty = false;
+    drawLive($('lvSpeedC'), 's', 'm/s', 0.5, 1);
+    drawLive($('lvLenC'), 'l', 'cm', 50, 0);
+  }
+  requestAnimationFrame(liveLoop);
+}
+requestAnimationFrame(liveLoop);
+window.addEventListener('resize', () => (liveDirty = true));
 
 /* ================= Resistance ================= */
 function lim() { return S.unitKg ? [S.limits.minKg, S.limits.maxKg] : [S.limits.minLb, S.limits.maxLb]; }
