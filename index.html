@@ -29,6 +29,7 @@
   --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --r: 14px;
+  --overlay: rgba(11, 14, 18, .88);
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -82,6 +83,14 @@ section.card { background: var(--panel); border-radius: var(--r); padding: 16px;
 .sync .hint { grid-column: 1 / -1; }
 .plan-t { font-weight: 600; }
 .wk-head .pill { margin-top: 6px; }
+.bigcd { position: fixed; inset: 0; z-index: 30; display: grid; place-content: center; justify-items: center; gap: 8px; background: var(--overlay); text-align: center; padding: 16px; }
+.bigcd .k { font-family: var(--font-display); font-size: 1.4rem; letter-spacing: .08em; text-transform: uppercase; color: var(--fg); }
+.bigcd .n { font-family: var(--font-display); font-weight: 700; font-size: min(55vw, 18rem); line-height: .9; color: var(--accent); }
+@media (prefers-reduced-motion: no-preference) { .bigcd .n.pop { animation: pop .9s ease-out; } @keyframes pop { from { transform: scale(1.35); opacity: .4; } to { transform: scale(1); opacity: 1; } } }
+body.has-rest { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 230px); }
+body.has-rest .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + 240px); }
+.rest { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; border-radius: 18px 18px 0 0; border-bottom: 0; box-shadow: 0 -8px 30px rgba(0,0,0,.45);
+  padding: 14px max(16px, env(safe-area-inset-right, 0px)) calc(14px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
 .rest { display: grid; gap: 6px; justify-items: center; text-align: center; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 12px; padding: 14px 12px; }
 .rest .k { font-size: .75rem; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
 .rest-t { font-family: var(--font-display); font-weight: 700; font-size: 4rem; line-height: 1; color: var(--accent); }
@@ -406,6 +415,11 @@ details .inner { display: grid; gap: 12px; }
     <span class="lic">Unofficial · CC BY-NC-SA 4.0</span>
   </footer>
 </main>
+<div id="bigCd" class="bigcd" hidden aria-live="assertive">
+  <div id="bigCdLabel" class="k">Get ready · set 1 of 3</div>
+  <div id="bigCdNum" class="n num">3</div>
+  <div id="bigCdSub" class="hint"></div>
+</div>
 <div id="toast" class="toast" role="status" hidden></div>
 
 <script>
@@ -1129,7 +1143,7 @@ function trackWorkout(all) {
 
 function renderVbt() {
   const lastOf = p => S.wk.side[p.id]?.last1;
-  const vals = f => S.pumps.map(p => { const r = lastOf(p); return r ? f(r) : '–'; });
+  const vals = f => S.pumps.length ? S.pumps.map(p => { const r = lastOf(p); return r ? f(r) : '–'; }) : ['–'];
   setMulti('vPeak', vals(r => r.peak.toFixed(2)));
   setMulti('vMean', vals(r => r.mean.toFixed(2)));
   setMulti('vPow', vals(r => String(r.power)));
@@ -1145,8 +1159,8 @@ async function startWorkout() {
   beep(660, 60, 0.05);                    // unlocks audio on this tap
   Object.assign(S.wk, newWk(), { t0: Date.now() });
   drawChart(); renderWkStats();
-  beginSet(1);
-  tick = setInterval(onTick, 250);
+  tick = setInterval(onTick, 200);
+  startReady(1);
   try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (_) {}
 }
 function beginSet(n) {
@@ -1156,6 +1170,7 @@ function beginSet(n) {
     for (const p of S.pumps) p.write(frame(CMD.WEIGHT, u16(w.setW))).catch(() => {});
     holdSync(2500); S.target = w.setW; renderLoad();
   } else w.setW = primaryWeight();
+  showBigCd(null);
   w.set = n; w.phase = 'set'; w.running = true; w.paused = false; w.side = {};
   dsReset();
   send(CMD.START);
@@ -1183,29 +1198,52 @@ function endSet(reason) {
     setTimeout(finishWk, 600);
     return;
   }
+  if (PLAN.rest <= 3) { startReady(w.set + 1); return; }
   w.phase = 'rest'; w.restEnd = Date.now() + PLAN.rest * 1000; w.lastBeep = -1;
   toast(`Set ${w.set} done (${reason}). Rest ${PLAN.rest} s`);
-  if (PLAN.rest <= 0) { beginSet(w.set + 1); return; }
   renderWk(); onTick();
+}
+// 3-2-1 "get ready" before every set: on Start, after "Start next set", and as the last
+// 3 seconds of every rest. Shown full screen so it's visible wherever you've scrolled.
+function startReady(n) {
+  const w = S.wk;
+  w.phase = 'ready'; w.next = n; w.restEnd = Date.now() + 3000; w.lastBeep = -1;
+  renderWk(); renderVbt(); onTick();
+}
+function showBigCd(n) {
+  const el = $('bigCd'), num = $('bigCdNum'), w = S.wk;
+  if (n == null) { el.hidden = true; return; }
+  const next = w.phase === 'ready' ? w.next : w.set + 1, unit = S.unitKg ? 'kg' : 'lb';
+  const wt = (w.ds?.drops.length && DS.on) ? w.setW : primaryWeight();
+  $('bigCdLabel').textContent = `Get ready · set ${next} of ${PLAN.sets}`;
+  $('bigCdSub').textContent = `${PLAN.reps ? PLAN.reps + ' reps' : 'open set'}${wt != null ? ` @ ${wt} ${unit}` : ''}`;
+  if (num.textContent !== String(n) || el.hidden) {
+    num.textContent = n; num.classList.remove('pop'); void num.offsetWidth; num.classList.add('pop');
+  }
+  el.hidden = false;
 }
 function onTick() {
   const w = S.wk;
   $('wkClock').textContent = fmt(wkElapsed());
-  if (w.phase !== 'rest' || w.paused) return;
+  if ((w.phase !== 'rest' && w.phase !== 'ready') || w.paused) return;
   const left = Math.ceil((w.restEnd - Date.now()) / 1000);
-  $('restLeft').textContent = fmt(left);
-  if (left <= 3 && left >= 1 && left !== w.lastBeep) { w.lastBeep = left; beep(880, 90); }
-  if (left <= 0) beginSet(w.set + 1);
+  if (w.phase === 'rest') $('restLeft').textContent = fmt(left);
+  if (left <= 3 && left >= 1) {
+    showBigCd(left);
+    if (left !== w.lastBeep) { w.lastBeep = left; beep(880, 90); try { navigator.vibrate?.(60); } catch (_) {} }
+  }
+  if (left <= 0) beginSet(w.phase === 'ready' ? w.next : w.set + 1);
 }
+$('bigCd').onclick = () => { if (S.wk.phase === 'ready' || S.wk.phase === 'rest') beginSet(S.wk.phase === 'ready' ? S.wk.next : S.wk.set + 1); };
 function togglePause() {
   const w = S.wk;
   if (w.phase === 'idle' || w.phase === 'done') return;
   if (!w.paused) {
-    w.paused = true; w.pausedAt = Date.now(); w.restLeft = w.restEnd - Date.now();
+    w.paused = true; w.pausedAt = Date.now(); w.restLeft = w.restEnd - Date.now(); showBigCd(null);
     if (w.running) { w.running = false; send(CMD.PAUSE); }
   } else {
     w.pausedMs += Date.now() - w.pausedAt; w.paused = false;
-    if (w.phase === 'rest') w.restEnd = Date.now() + w.restLeft;
+    if (w.phase === 'rest' || w.phase === 'ready') w.restEnd = Date.now() + w.restLeft;
     if (w.phase === 'set') { w.running = true; send(CMD.START); }
   }
   renderWk(); renderDS();
@@ -1233,6 +1271,7 @@ function finishWk() {
     toast('Workout saved');
   } else toast('No reps recorded, nothing saved');
   Object.assign(w, newWk());
+  showBigCd(null);
   $('wkClock').textContent = '0:00';
   renderWk(); renderDS(); renderVbt(); drawChart(); renderWkStats();
 }
@@ -1246,8 +1285,10 @@ function renderWk() {
   const target = PLAN.reps > 0 ? ` × ${PLAN.reps}` : '';
   $('planChip').textContent = `${PLAN.sets}${PLAN.reps > 0 ? ' × ' + PLAN.reps : ' sets, open'}${PLAN.vl ? ` · stop at −${PLAN.vl}%` : ''}`;
   $('restBox').hidden = w.phase !== 'rest';
+  document.body.classList.toggle('has-rest', w.phase === 'rest');
   if (w.phase === 'idle') { chip.textContent = `Plan: ${PLAN.sets} set${PLAN.sets > 1 ? 's' : ''}${target}`; chip.className = 'pill'; }
   else if (w.phase === 'set') { const n = Math.max(0, ...Object.values(w.side).map(x => x.n)); chip.textContent = `Set ${w.set}/${PLAN.sets} · ${n}${PLAN.reps > 0 ? '/' + PLAN.reps : ''} reps${w.paused ? ' · paused' : ''}`; chip.className = 'pill on'; }
+  else if (w.phase === 'ready') { chip.textContent = `Get ready · set ${w.next}/${PLAN.sets}${w.paused ? ' · paused' : ''}`; chip.className = 'pill demo'; }
   else if (w.phase === 'rest') { chip.textContent = `Rest · next set ${w.set + 1}/${PLAN.sets}${w.paused ? ' · paused' : ''}`; chip.className = 'pill demo'; }
   else { chip.textContent = 'Workout complete'; chip.className = 'pill on'; }
   if (w.phase === 'rest') {
@@ -1263,7 +1304,7 @@ function renderWk() {
 $('wkStart').onclick = () => (S.wk.phase === 'idle' ? startWorkout() : togglePause());
 $('wkEndSet').onclick = () => endSet('ended by you');
 $('wkFinish').onclick = finishWk;
-$('restSkip').onclick = () => { if (S.wk.phase === 'rest') beginSet(S.wk.set + 1); };
+$('restSkip').onclick = () => { if (S.wk.phase === 'rest') startReady(S.wk.set + 1); };
 $('restPlus').onclick = () => { if (S.wk.phase === 'rest') { S.wk.restEnd += 15000; S.wk.restLeft += 15000; onTick(); } };
 $('restMinus').onclick = () => { if (S.wk.phase === 'rest') { S.wk.restEnd -= 15000; S.wk.restLeft -= 15000; onTick(); } };
 for (const [id, k, lo, hi] of [['pSets', 'sets', 1, 20], ['pReps', 'reps', 0, 100], ['pRest', 'rest', 0, 600], ['pVl', 'vl', 0, 60]]) {

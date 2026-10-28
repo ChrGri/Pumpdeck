@@ -1,6 +1,6 @@
 // PumpDeck service worker: lets the app open offline and install to the home screen.
 // The page is fetched network-first, so updates pushed to GitHub show up on the next online launch.
-const CACHE = 'pumpdeck-v1';
+const CACHE = 'pumpdeck-v2';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
@@ -16,7 +16,7 @@ self.addEventListener('fetch', e => {
   const isFont = url.host === 'fonts.googleapis.com' || url.host === 'fonts.gstatic.com';
   if (url.origin !== location.origin && !isFont) return;
   if (req.mode === 'navigate' || url.pathname.endsWith('.html')) {
-    e.respondWith(fetch(req).then(r => { const c = r.clone(); caches.open(CACHE).then(x => x.put(req, c)); return r; })
+    e.respondWith(fetch(req.url, { cache: 'no-store' }).then(r => { const c = r.clone(); caches.open(CACHE).then(x => x.put(req, c)); return r; })
       .catch(() => caches.match(req).then(r => r || caches.match('./index.html'))));
     return;
   }
