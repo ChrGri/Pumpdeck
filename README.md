@@ -23,6 +23,9 @@ Open the link on your phone and you're ready. Nothing to download or set up.
 - **Runs locally on your phone.** PumpDeck is a web app: the code runs entirely in your browser and talks to the pumps directly over Bluetooth. Nothing is sent to a server, and your workout history stays on your device. After the first visit it also opens offline.
 - **Nothing to install.** One link, nothing from an app store. Optionally add it to your home screen. Updates arrive automatically.
 - **More training insight.** Live graphs, per-rep speed bars for left and right, signed speed (pull vs. return) and temperature monitoring.
+- **Velocity-based training.** Peak speed, mean speed, estimated power and velocity loss for every rep. Optionally end the set at a chosen velocity loss.
+- **Sets and rest timer.** Plan sets × reps, with an automatic rest countdown and beeps before the next set.
+- **Auto drop set.** When your reps get slower or shorter, the next rep is automatically lighter.
 - **Better two-pump handling.** Left/right readouts side by side, and sync of resistance, unit, mode *and* mode settings. The official app only syncs resistance and unit.
 - **Open and transparent.** The source and the decoded Bluetooth protocol are public. There's a built-in protocol log for tinkerers.
 
@@ -38,6 +41,9 @@ Open the link on your phone and you're ready. Nothing to download or set up.
 | Live graphs (speed, rope, temperature), 10/30/60 s | – | **✓** |
 | Signed speed (pull + / return −) | – | **✓** |
 | Per-rep peak-speed chart, left/right | – | **✓** |
+| Velocity-based training: peak/mean speed, power, velocity loss per rep | – | **✓** |
+| Sets × reps with rest timer, stop at velocity loss | – | **✓** |
+| Auto drop set (lighter when reps slow down or get shorter) | – | **✓** |
 | Rope-length calibration | – | **✓** |
 | Workout history | in the cloud | on the phone, JSON export |
 | Protocol log / raw commands | – | **✓** |
@@ -74,13 +80,30 @@ Chrome menu **⋮** → **Install app** / **Add to Home screen**. PumpDeck then 
   | Power saving | eco mode |
 
 ### 4. Train
-1. Under **Workout**, tap **Start**. The screen stays on while you train.
-2. The top cards show **Reps**, **Speed** and **Rope out** (cm) live for left and right. Speed is + while pulling and − while the rope goes back in.
-3. The **Live** graphs plot speed, rope length and temperature. Pick a 10, 30 or 60 s window at the top right.
-4. The bar chart shows each rep's peak speed, left and right side by side. That makes it easy to spot when you're slowing down.
-5. Use **Pause** / **Resume** as needed, then **Finish & save**. The workout goes to **History** and can be exported as JSON.
+1. Under **Sets & rest**, set your plan:
+   - **Sets** and **Reps** per set. Reps 0 = open set, which you end yourself.
+   - **Rest** in seconds.
+   - Optionally **Stop at loss**: the set ends when a rep's mean speed drops that many percent below your best rep in the set. 20–30 % is common for velocity-based training.
+2. Tap **Start**. The screen stays on. Each set ends automatically when the reps are done (or at the velocity loss). A rest countdown follows, with beeps for the last 3 seconds, and then the next set starts. Use **−15 s / +15 s** to adjust the rest, or **Start next set** to skip it.
+3. After every rep, the tiles show for left and right:
+   - **Peak** and **Mean** speed while pulling (m/s)
+   - estimated **Power** (W)
+   - **Loss**: velocity loss versus the best rep of the set
+4. The top cards show **Reps** (in the current set), live **Speed** and **Rope out**. Speed is + while pulling, − while the rope goes back in.
+5. The bar chart shows the current set rep by rep, left and right side by side. Switch between **Peak speed**, **Mean speed** and **Power**. With "Stop at loss" on, the mean-speed view shows the stop threshold as a dashed line.
+6. The **Live** graphs plot speed, rope length and temperature over 10, 30 or 60 s.
+7. After the last set the workout is saved automatically. **Finish & save** ends it early. **History** lists your workouts, and you can export it as JSON.
 
-### 5. Calibrate rope length (optional)
+### 5. Auto drop set (optional)
+Tick **Auto drop set** before you start.
+1. In each set, the first rep at a weight is a settling rep. The next 2 reps set your **reference** peak speed and rope range, per side.
+2. When a later rep is slower than **Speed <** (default 75 %) or shorter than **Range <** (default 80 %) of that reference, the load on both pumps drops by **Drop by** (default 20 %). The phone vibrates.
+3. A new reference is measured at the lighter weight. This repeats up to **Max drops** times per set (default 3).
+4. The next set starts again from that set's original weight.
+
+Drops show up as dashed lines in the rep chart and are saved with the workout.
+
+### 6. Calibrate rope length (optional)
 If **Rope out** is off, go to **Pump settings** → **Rope calibration**:
 1. Pull the rope out to a length you've measured, e.g. an A4 sheet's long side (29.7 cm) or 1 m with a tape measure.
 2. Hold it there and enter the real length.
