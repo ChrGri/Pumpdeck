@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#11151b">
 <title>PumpDeck</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -176,6 +179,12 @@ details .inner { display: grid; gap: 12px; }
       <label for="syncChk"><input id="syncChk" type="checkbox" checked> Sync both pumps</label>
       <span id="syncChip" class="pill">Waiting…</span>
       <p class="hint">Same resistance, unit, mode and mode settings on both. A change on either pump, even with its own buttons, is copied to the other.</p>
+    </div>
+    <div id="autoRow" class="sync" hidden>
+      <label for="autoChk"><input id="autoChk" type="checkbox" checked> Connect automatically</label>
+      <button id="autoForget" type="button" class="danger" style="min-height:36px;padding:6px 10px">Forget</button>
+      <p id="autoMsg" class="hint"></p>
+      <p id="autoTip" class="hint" hidden>In Chrome, open <code>chrome://flags</code>, search for <strong>Web Bluetooth new permissions backend</strong>, set it to Enabled and restart Chrome. Until then, tap Connect pump each time.</p>
     </div>
     <div class="row">
       <button id="btnConnect" class="primary" type="button">Connect pump</button>
@@ -479,6 +488,17 @@ function handleFrame(p, f, crcOk) {
 }
 
 /* ================= Web Bluetooth ================= */
+// Known pumps are remembered (id + name, in left/right order) so the page can reconnect
+// without the chooser via navigator.bluetooth.getDevices(). Chrome only returns devices
+// this site was already allowed to use.
+const KK = 'pumpdeck.known.v1';
+function loadKnown() { try { return JSON.parse(localStorage.getItem(KK)) || []; } catch (_) { return []; } }
+function saveKnown(k) { try { localStorage.setItem(KK, JSON.stringify(k)); } catch (_) {} }
+let autoOn = true;
+try { autoOn = localStorage.getItem('pumpdeck.auto') !== '0'; } catch (_) {}
+const connecting = new Set();      // device ids with a connect in flight
+const manualDrop = new Set();      // ids the user disconnected on purpose: don't auto-reconnect
+
 async function connectReal() {
   if (!navigator.bluetooth) { $('noBt').hidden = false; return; }
   let dev;
@@ -489,7 +509,17 @@ async function connectReal() {
     });
   } catch (e) { if (e.name !== 'NotFoundError') toast(e.message); return; }
   if (S.pumps.some(p => p.id === dev.id)) { toast('That pump is already connected'); return; }
+  manualDrop.delete(dev.id);
+  const k = loadKnown();
+  if (!k.some(x => x.id === dev.id)) { k.push({ id: dev.id, name: dev.name || 'Pump' }); saveKnown(k.slice(-2)); }
   toast('Connecting…');
+  await connectDevice(dev, true);
+  renderAuto();
+}
+
+async function connectDevice(dev, loud) {
+  if (connecting.has(dev.id) || S.pumps.some(p => p.id === dev.id)) return true;
+  connecting.add(dev.id);
   try {
     const server = await dev.gatt.connect();
     let svc, model;
@@ -507,18 +537,73 @@ async function connectReal() {
     const read = makeReader(pump);
     nch.addEventListener('characteristicvaluechanged', e => read(new Uint8Array(e.target.value.buffer)));
     await nch.startNotifications();
-    dev.addEventListener('gattserverdisconnected', () => dropPump(pump, 'disconnected'));
+    if (!dev._pdWired) {
+      dev._pdWired = true;
+      dev.addEventListener('gattserverdisconnected', () => {
+        const p = S.pumps.find(x => x.id === dev.id);
+        if (p) dropPump(p, manualDrop.has(dev.id) ? 'disconnected' : 'lost, reconnecting…');
+        if (autoOn && !manualDrop.has(dev.id)) scheduleAuto(1500);
+      });
+    }
     addPump(pump);
+    return true;
   } catch (e) {
-    log('er', e.message); toast(`Couldn't connect: ${e.message}`);
+    if (loud) { log('er', e.message); toast(`Couldn't connect: ${e.message}`); }
     try { dev.gatt.disconnect(); } catch (_) {}
-  }
+    return false;
+  } finally { connecting.delete(dev.id); }
 }
+
+/* ---- Auto-connect ---- */
+let autoTimer = null, autoSupported = !!(navigator.bluetooth && navigator.bluetooth.getDevices);
+function scheduleAuto(ms) { clearTimeout(autoTimer); autoTimer = setTimeout(autoConnect, ms); }
+async function autoConnect() {
+  clearTimeout(autoTimer);
+  if (!autoOn || !autoSupported || document.visibilityState !== 'visible') return;
+  const known = loadKnown();
+  if (!known.length) { renderAuto(); return; }
+  let devices = [];
+  try { devices = await navigator.bluetooth.getDevices(); } catch (_) { autoSupported = false; renderAuto(); return; }
+  const missing = devices.filter(d => known.some(k => k.id === d.id) && !manualDrop.has(d.id) && !S.pumps.some(p => p.id === d.id));
+  renderAuto(missing.length);
+  for (const d of missing) {
+    // watchAdvertisements tells us when the pump is actually in range; without it, just try to connect
+    if (d.watchAdvertisements && !d._pdWatching) {
+      try {
+        d._pdWatching = true;
+        d.addEventListener('advertisementreceived', () => { if (autoOn && !manualDrop.has(d.id)) connectDevice(d).then(renderAuto); }, { once: false });
+        await d.watchAdvertisements();
+      } catch (_) { d._pdWatching = false; }
+    }
+    if (await connectDevice(d)) log('rx', `auto-connected ${d.name || d.id}`);
+  }
+  if (S.pumps.filter(p => !p.demo).length < Math.min(2, known.length)) scheduleAuto(5000);
+  renderAuto();
+}
+function renderAuto(searching) {
+  const known = loadKnown();
+  const box = $('autoRow');
+  box.hidden = !navigator.bluetooth;
+  $('autoChk').checked = autoOn;
+  const real = S.pumps.filter(p => !p.demo).length;
+  let msg;
+  if (!autoSupported) msg = 'Your browser doesn\'t allow reconnecting by itself yet. See the tip below.';
+  else if (!known.length) msg = 'Connect your pumps once with the button below; after that they connect by themselves.';
+  else if (!autoOn) msg = `Off. ${known.length} pump${known.length > 1 ? 's' : ''} remembered.`;
+  else if (real >= known.length) msg = `All ${known.length} remembered pump${known.length > 1 ? 's' : ''} connected.`;
+  else if (real + manualDrop.size >= known.length) msg = 'You disconnected a pump, so it stays off. Tap Connect pump to bring it back.';
+  else msg = `Looking for ${known.length - real} pump${known.length - real > 1 ? 's' : ''}… switch ${known.length - real > 1 ? 'them' : 'it'} on.`;
+  $('autoMsg').textContent = msg;
+  $('autoTip').hidden = autoSupported;
+  $('autoForget').hidden = !known.length;
+}
+function knownIndex(p) { const i = loadKnown().findIndex(k => k.id === p.id); return i < 0 ? 9 : i; }
 
 function addPump(p) {
   S.pumps.push(p);
+  S.pumps.sort((a, b) => knownIndex(a) - knownIndex(b));   // remembered order = left, right
   log('rx', `${p.name} connected (${p.model})`);
-  renderPumps();
+  renderPumps(); renderAuto();
   // same follow-up the official app sends: firmware version, then weight limits
   setTimeout(() => p.write(frame(CMD.FW)), 200);
   setTimeout(() => p.write(frame(CMD.LIMITS)), 400);
@@ -528,11 +613,12 @@ function dropPump(p, why) {
   S.pumps = S.pumps.filter(x => x !== p);
   log('er', `${p.name} ${why}`);
   if (p.timer) clearInterval(p.timer);
-  renderPumps(); renderLoad();
+  renderPumps(); renderLoad(); renderAuto();
 }
 function disconnect(p) {
-  if (p.demo) dropPump(p, 'removed');
-  else try { p.dev.gatt.disconnect(); } catch (_) { dropPump(p, 'removed'); }
+  if (p.demo) { dropPump(p, 'removed'); return; }
+  manualDrop.add(p.id);
+  try { p.dev.gatt.disconnect(); } catch (_) { dropPump(p, 'removed'); }
 }
 
 /* ================= Demo pump (feeds fake frames through the same parser) ================= */
@@ -1082,6 +1168,18 @@ $('syncChk').onchange = e => {
   try { localStorage.setItem('pumpdeck.sync', syncOn ? '1' : '0'); } catch (_) {}
   syncState = ''; renderSync();
 };
+$('autoChk').onchange = e => {
+  autoOn = e.target.checked;
+  try { localStorage.setItem('pumpdeck.auto', autoOn ? '1' : '0'); } catch (_) {}
+  if (autoOn) { manualDrop.clear(); autoConnect(); } else { clearTimeout(autoTimer); renderAuto(); }
+};
+$('autoForget').onclick = async () => {
+  const known = loadKnown();
+  saveKnown([]); clearTimeout(autoTimer);
+  try { for (const d of await navigator.bluetooth.getDevices()) if (known.some(k => k.id === d.id) && d.forget) await d.forget(); } catch (_) {}
+  renderAuto(); toast('Pumps forgotten. Connect them again to remember them.');
+};
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') scheduleAuto(300); });
 $('btnConnect').onclick = connectReal;
 $('btnDemo').onclick = () => {
   const start = S.pumps.length;
@@ -1092,6 +1190,8 @@ $('btnDemo').onclick = () => {
 /* ================= Boot ================= */
 if (!navigator.bluetooth) $('noBt').hidden = false;
 renderModes(); renderLoad(); renderPumps(); renderHist(); renderInfo(); drawChart();
+renderAuto(); scheduleAuto(400);
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
 </html>
