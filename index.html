@@ -73,6 +73,10 @@ section.card { background: var(--panel); border-radius: var(--r); padding: 16px;
 .pump .name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .pump .meta { grid-column: 1 / -1; color: var(--muted); font-size: .85rem; display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .batt { font-family: var(--font-display); font-size: 1.1rem; }
+.sync { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center; background: var(--panel-2); border-radius: 10px; padding: 10px 12px; }
+.sync label { display: flex; align-items: center; gap: 10px; font-weight: 600; min-height: 32px; }
+.sync input { width: 22px; height: 22px; accent-color: var(--accent); }
+.sync .hint { grid-column: 1 / -1; }
 .row { display: flex; gap: 10px; flex-wrap: wrap; }
 .row > button { flex: 1 1 140px; }
 
@@ -165,6 +169,11 @@ details .inner { display: grid; gap: 12px; }
   <section class="card" aria-labelledby="h-pumps">
     <h2 id="h-pumps">Pumps</h2>
     <div id="pumps" class="pumps"><p class="empty">No pump connected. Switch the pump on, then tap <em>Connect pump</em>. Connect a second one for two-handed training.</p></div>
+    <div id="syncRow" class="sync" hidden>
+      <label for="syncChk"><input id="syncChk" type="checkbox" checked> Sync both pumps</label>
+      <span id="syncChip" class="pill">Waiting…</span>
+      <p class="hint">Same resistance, unit, mode and mode settings on both. A change on either pump, even with its own buttons, is copied to the other.</p>
+    </div>
     <div class="row">
       <button id="btnConnect" class="primary" type="button">Connect pump</button>
       <button id="btnDemo" type="button">Demo pump</button>
@@ -376,6 +385,7 @@ function toast(msg) {
 async function sendAll(bytes, quiet) {
   if (!S.pumps.length) { toast('Connect a pump first'); return; }
   if (!quiet) log('tx', hex(bytes));
+  if (typeof holdSync === 'function') holdSync();   // our own change goes to both pumps; don't "sync" mid-flight
   for (const p of S.pumps) {
     try { await p.write(bytes); } catch (e) { log('er', `${p.name}: ${e.message}`); }
   }
@@ -488,9 +498,11 @@ function disconnect(p) {
 
 /* ================= Demo pump (feeds fake frames through the same parser) ================= */
 function connectDemo() {
-  if (S.pumps.some(p => p.demo)) { toast('Demo pump already running'); return; }
+  if (S.pumps.length >= 2) { toast('Two pumps are already connected'); return; }
+  const n = S.pumps.filter(p => p.demo).length + 1;
   const sim = { weight: 10, mode: 1, ecc: 0, conc: 0, chain: 0, unitKg: true, reps: 0, counting: true, t: 0, len: 0, lastPhase: 0, batt: 87 };
-  const pump = { id: 'demo', name: 'Demo pump', model: 'TC-JS-P1', demo: true };
+  const pump = { id: 'demo' + n, name: n > 1 ? `Demo pump ${n}` : 'Demo pump', model: 'TC-JS-P1', demo: true, sim };
+  if (n > 1) sim.t = 0.7;   // slightly out of phase with the first one
   const read = makeReader(pump);
   const reply = (cmd, data) => read(Array.from(frame(cmd, data)));
   pump.write = async bytes => {
@@ -543,7 +555,64 @@ function onStatus(p) {
   $('rLen').textContent = Math.round(len);
   trackWorkout(reps, speed);
   pushLive(all);
+  syncPumps();
   renderLoad(); renderPumps(true);
+}
+
+/* ================= Two-pump sync =================
+   Like the official app: when the two pumps disagree, the one that changed since the
+   last agreed state (e.g. someone pressed + on the pump) wins and is copied to the other.
+   We extend that from weight + unit to mode and the eccentric/concentric/chain shares. */
+let syncOn = true;
+try { syncOn = localStorage.getItem('pumpdeck.sync') !== '0'; } catch (_) {}
+const SYNC_FIELDS = [
+  { key: 'unitKg', cmd: CMD.UNIT,  data: v => [v ? 1 : 2] },
+  { key: 'weight', cmd: CMD.WEIGHT, data: v => u16(v) },
+  { key: 'mode',   cmd: CMD.MODE,  data: v => [v] },
+  { key: 'ecc',    cmd: CMD.ECC,   data: v => [v] },
+  { key: 'conc',   cmd: CMD.CONC,  data: v => [v] },
+  { key: 'chain',  cmd: CMD.CHAIN, data: v => [v] },
+];
+const agreed = {};
+let syncHold = 0;          // pause sync briefly after our own writes so pumps can catch up
+let syncState = '';
+function holdSync(ms = 1500) { syncHold = Date.now() + ms; }
+function syncPumps() {
+  const [a, b] = S.pumps;
+  let state = '';
+  if (S.pumps.length === 2 && a.status && b.status) {
+    const diff = SYNC_FIELDS.filter(f => a.status[f.key] !== b.status[f.key]);
+    if (!diff.length) {
+      for (const f of SYNC_FIELDS) agreed[f.key] = a.status[f.key];
+      state = 'in sync';
+    } else if (!syncOn) {
+      state = 'different';
+    } else {
+      state = 'syncing';
+      if (Date.now() >= syncHold) {
+        for (const f of diff) {
+          if (f.key === 'weight' && a.status.unitKg !== b.status.unitKg) continue; // fix unit first
+          // the pump that moved away from the agreed value is the source; default: left pump
+          const src = agreed[f.key] !== undefined && a.status[f.key] === agreed[f.key] && b.status[f.key] !== agreed[f.key] ? b : a;
+          const dst = src === a ? b : a;
+          const v = src.status[f.key];
+          log('tx', `sync ${f.key} → ${dst.name}: ${v}`);
+          dst.write(frame(f.cmd, f.data(v)));
+          if (f.key === 'weight') S.target = v;
+        }
+        holdSync(1200);
+      }
+    }
+  }
+  if (state !== syncState) { syncState = state; renderSync(); }
+}
+function renderSync() {
+  const two = S.pumps.length === 2;
+  $('syncRow').hidden = !two;
+  $('syncChk').checked = syncOn;
+  const chip = $('syncChip');
+  chip.textContent = syncState === 'in sync' ? 'In sync' : syncState === 'syncing' ? 'Syncing…' : syncState === 'different' ? 'Different settings' : 'Waiting…';
+  chip.className = 'pill' + (syncState === 'in sync' ? ' on' : syncState ? ' demo' : '');
 }
 
 /* ================= Live graphs ================= */
@@ -834,6 +903,10 @@ function renderPumps(statusOnly) {
   $('connPill').className = 'pill' + (S.pumps.some(p => p.demo) ? ' demo' : S.pumps.length ? ' on' : '');
   $('btnConnect').textContent = S.pumps.length ? 'Add second pump' : 'Connect pump';
   $('btnConnect').disabled = S.pumps.length >= 2;
+  $('btnDemo').disabled = S.pumps.length >= 2;
+  $('btnDemo').textContent = S.pumps.some(p => p.demo) ? 'Add demo pump' : 'Demo pump';
+  if (S.pumps.length < 2) syncState = '';
+  renderSync();
   if (!S.pumps.length) { box.innerHTML = '<p class="empty">No pump connected. Switch the pump on, then tap <em>Connect pump</em>. Connect a second one for two-handed training.</p>'; return; }
   if (statusOnly && box.querySelectorAll('.pump').length === S.pumps.length) {
     S.pumps.forEach((p, i) => { const el = box.children[i]; el.querySelector('.batt').textContent = p.status ? p.status.battery + '%' : '–'; el.querySelector('.meta').innerHTML = meta(p); });
@@ -881,6 +954,11 @@ $('rawSend').onclick = () => {
   sendAll(new Uint8Array([...b, c >> 8, c & 0xff]));
 };
 
+$('syncChk').onchange = e => {
+  syncOn = e.target.checked;
+  try { localStorage.setItem('pumpdeck.sync', syncOn ? '1' : '0'); } catch (_) {}
+  syncState = ''; renderSync();
+};
 $('btnConnect').onclick = connectReal;
 $('btnDemo').onclick = connectDemo;
 

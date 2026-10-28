@@ -16,6 +16,7 @@ A replacement control app for TT BOT / Rayofi Go Tone smart fitness pumps. It is
 - All 6 modes: standard, eccentric, concentric, rowing, iron chain, power saving
 - Live reps, speed and rope position, for one or two pumps
 - Live speed and rope-length graphs with a 10, 30 or 60 s window
+- Two-pump sync: same resistance, unit, mode and mode settings on both, including changes made with the pump's own buttons
 - Workout timer, per-rep speed chart, and history stored on the phone (exportable as JSON)
 - Protocol log and a raw command sender for debugging
 
