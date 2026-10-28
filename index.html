@@ -211,6 +211,8 @@ details .inner { display: grid; gap: 12px; }
     <canvas id="lvSpeedC" class="live" aria-label="Speed over time"></canvas>
     <div class="live-k"><span>Rope out</span><span><span id="lvLen" class="num">0</span> cm</span></div>
     <canvas id="lvLenC" class="live" aria-label="Rope length over time"></canvas>
+    <div class="live-k"><span>Temperature</span><span><span id="lvTemp" class="num">–</span> °C</span></div>
+    <canvas id="lvTempC" class="live" aria-label="Pump temperature over time"></canvas>
   </section>
 
   <section class="card" aria-labelledby="h-mode">
@@ -503,12 +505,12 @@ function connectDemo() {
   // Two different "athletes": the second one pulls a bit slower and shorter, drifts in tempo,
   // explodes on the pull and lowers slowly, and pauses briefly at the top.
   const PROFILES = [
-    { rate: 2.2, amp: 30, drift: 0.08, ease: 1.0, hold: 0,    noise: 0.3, batt: 87, ph: 0 },
-    { rate: 1.8, amp: 25, drift: 0.18, ease: 1.6, hold: 0.15, noise: 0.6, batt: 64, ph: 1.4 },
+    { rate: 2.2, amp: 30, drift: 0.08, ease: 1.0, hold: 0,    noise: 0.3, batt: 87, ph: 0, temp0: 27, heat: 0.6 },
+    { rate: 1.8, amp: 25, drift: 0.18, ease: 1.6, hold: 0.15, noise: 0.6, batt: 64, ph: 1.4, temp0: 30, heat: 0.9 },
   ];
   const prof = PROFILES[(n - 1) % 2];
   const sim = { weight: 10, mode: 1, ecc: 0, conc: 0, chain: 0, unitKg: true, reps: 0, counting: true,
-    t: 0, ph: prof.ph, lenCm: null, batt: prof.batt, prof };
+    t: 0, ph: prof.ph, lenCm: null, temp: prof.temp0, batt: prof.batt, prof };
   const pump = { id: 'demo' + n, name: n > 1 ? `Demo pump ${n}` : 'Demo pump', model: 'TC-JS-P1', demo: true, sim };
   const read = makeReader(pump);
   const reply = (cmd, data) => read(Array.from(frame(cmd, data)));
@@ -543,9 +545,11 @@ function connectDemo() {
     const lenCm = Math.max(0, countsToCm(P.amp) * shaped + (Math.random() - 0.5) * P.noise);
     const speedMs = sim.lenCm == null ? 0 : Math.abs(lenCm - sim.lenCm) / 100 / dt;
     sim.lenCm = lenCm;
+    // motor warms with load × speed and cools toward 24 °C
+    sim.temp += (sim.weight * speedMs * P.heat * 0.02 - (sim.temp - 24) * 0.004);   // per 100 ms tick: ≈36–44 °C after a minute at 10 kg
     const lenCounts = Math.round(lenCm / countsToCm(1));
     const speed = Math.round(speedMs * 300000 / (35 * Math.PI));
-    const d = [...u16(8120), ...u16(Math.round((pulling ? 1 : -1) * speedMs * 1500) & 0xffff), sim.batt, 31,
+    const d = [...u16(8120), ...u16(Math.round((pulling ? 1 : -1) * speedMs * 1500) & 0xffff), sim.batt, Math.round(sim.temp),
       ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
       sim.mode, ...u16(sim.weight), ...u16(speed), ...u16(lenCounts), sim.ecc, sim.conc, sim.chain,
       ...u16(P.amp), ...u16(sim.reps), 0, sim.unitKg ? 1 : 2];
@@ -648,15 +652,16 @@ function pushLive(all) {
   const now = performance.now();
   if (now - lastLiveT < 40) return;            // one sample per ~40 ms is plenty, even with two pumps
   lastLiveT = now;
-  live.push({ t: now, s: all.map(x => speedToMs(x.status.speed)), l: all.map(x => countsToCm(x.status.length)) });
+  live.push({ t: now, s: all.map(x => speedToMs(x.status.speed)), l: all.map(x => countsToCm(x.status.length)), c: all.map(x => x.status.temp) });
   while (live.length && now - live[0].t > LIVE_MAX_S * 1000 + 1000) live.shift();
   const last = live[live.length - 1];
   $('lvSpeed').textContent = Math.max(...last.s).toFixed(2);
   $('lvLen').textContent = Math.round(Math.max(...last.l));
+  $('lvTemp').textContent = last.c.join(' / ');
   liveDirty = true;
 }
 function niceTop(v, step) { return Math.max(step, Math.ceil(v / step) * step); }
-function drawLive(canvas, key, unit, step, digits) {
+function drawLive(canvas, key, unit, step, digits, autoMin) {
   const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
   if (!W) return;
   if (canvas.width !== Math.round(W * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
@@ -669,13 +674,22 @@ function drawLive(canvas, key, unit, step, digits) {
   const now = performance.now(), span = liveWin * 1000;
   const pts = live.filter(p => now - p.t <= span);
   const padL = 36, padR = 8, padT = 8, padB = 18, iw = W - padL - padR, ih = H - padT - padB;
-  let top = step;
-  for (const p of pts) for (const v of p[key]) top = Math.max(top, v);
-  top = niceTop(top, step);
+  // speed and rope start at 0; temperature zooms to its own range so small changes stay visible
+  let top = step, bot = 0;
+  if (autoMin && pts.length) {
+    const vals = pts.flatMap(p => p[key]);
+    bot = Math.floor(Math.min(...vals) / step) * step;
+    top = Math.max(bot + step, Math.ceil(Math.max(...vals) / step) * step);
+    if (top === Math.max(...vals)) top += step;
+  } else {
+    for (const p of pts) for (const v of p[key]) top = Math.max(top, v);
+    top = niceTop(top, step);
+  }
+  const Y = v => padT + ih - ((v - bot) / (top - bot)) * ih;
   // grid + y labels
   g.lineWidth = 1; g.strokeStyle = line; g.fillStyle = muted; g.textAlign = 'right';
-  for (const v of [0, top / 2, top]) {
-    const y = Math.round(padT + ih - (v / top) * ih) + .5;
+  for (const v of [bot, (bot + top) / 2, top]) {
+    const y = Math.round(Y(v)) + .5;
     g.beginPath(); g.moveTo(padL, y); g.lineTo(W - padR, y); g.stroke();
     g.fillText(v.toFixed(digits), padL - 6, y + 4);
   }
@@ -693,7 +707,7 @@ function drawLive(canvas, key, unit, step, digits) {
   }
   const series = Math.max(...pts.map(p => p[key].length));
   for (let k = 0; k < series; k++) {
-    const xy = pts.filter(p => p[key][k] != null).map(p => [padL + iw * (1 - (now - p.t) / span), padT + ih - (p[key][k] / top) * ih]);
+    const xy = pts.filter(p => p[key][k] != null).map(p => [padL + iw * (1 - (now - p.t) / span), Y(p[key][k])]);
     if (xy.length < 2) continue;
     g.beginPath(); xy.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
     g.strokeStyle = colors[k % 2]; g.lineWidth = 2; g.lineJoin = 'round'; g.stroke();
@@ -716,6 +730,7 @@ function liveLoop(ts) {
     lastDraw = ts; liveDirty = false;
     drawLive($('lvSpeedC'), 's', 'm/s', 0.5, 1);
     drawLive($('lvLenC'), 'l', 'cm', 50, 0);
+    drawLive($('lvTempC'), 'c', '°C', 5, 0, true);
   }
   requestAnimationFrame(liveLoop);
 }
