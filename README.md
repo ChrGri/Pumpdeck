@@ -1,32 +1,75 @@
 # PumpDeck
 
-A replacement control app for TT BOT / Rayofi Go Tone smart fitness pumps. It is a single HTML page that talks to the pump directly over Web Bluetooth, with no account and no cloud.
+Eine alternative App für die Seilzug-Fitnesspumpen **Rayofi Go Tone** / **TT BOT**. Sie verbindet sich direkt per Bluetooth mit den Pumpen: kein Konto, keine Cloud, nichts zu installieren.
 
-## Use
+## 👉 App öffnen: **https://chrgri.github.io/Pumpdeck/**
 
-1. Serve `index.html` over HTTPS (GitHub Pages, Netlify, etc.).
-2. Open it in Chrome on Android, or in the Bluefy browser on iPhone, with Bluetooth and location switched on.
-3. Switch the pump on and tap **Connect pump**. Connect a second pump for two-handed training.
+Einfach den Link im Handy-Browser öffnen, fertig. Es muss nichts heruntergeladen oder eingerichtet werden.
 
-**Demo pump** simulates a pump, so you can try the app without hardware.
+**Voraussetzungen**
+- **Android:** Chrome
+- **iPhone:** die kostenlose App **Bluefy** (Safari kann kein Web-Bluetooth)
+- Bluetooth an; Chrome braucht die Berechtigung „Geräte in der Nähe“, auf älteren Android-Versionen den Standort
 
-## Features
+---
 
-- Resistance control, limited to the range the pump reports (kg or lb)
-- All 6 modes: standard, eccentric, concentric, rowing, iron chain, power saving
-- Live reps, speed and rope position, for one or two pumps
-- Live speed, rope-length and temperature graphs with a 10, 30 or 60 s window
-- Two-pump sync: same resistance, unit, mode and mode settings on both, including changes made with the pump's own buttons
-- Remembers your pumps and reconnects to them automatically (Chrome on Android)
-- Installable: "Add to Home screen" opens it full screen, also offline
-- Workout timer, per-rep speed chart, and history stored on the phone (exportable as JSON)
-- Protocol log and a raw command sender for debugging
+## Kurzes Tutorial
 
-See [PROTOCOL.md](PROTOCOL.md) for the decoded Bluetooth protocol.
+### 1. Pumpen verbinden (einmalig)
+1. Beide Pumpen einschalten.
+2. Auf **Connect pump** tippen und im Auswahldialog die **linke** Pumpe wählen (Name z. B. `Realtek-F8E4`).
+3. Auf **Add second pump** tippen und die **rechte** Pumpe wählen.
 
-## Automatic connection (Android)
+Die Karten zeigen jetzt **Left** (orange) und **Right** (grün) mit Akku, Temperatur und Firmware. Ab jetzt merkt sich die App beide Pumpen. Beim nächsten Öffnen verbinden sie sich automatisch, sobald sie eingeschaltet sind.
 
-1. Open the app in Chrome and connect each pump once with **Connect pump**: left first, then right.
-2. From then on, the app connects to both pumps by itself whenever it is opened and the pumps are on. It also reconnects if a pump drops out mid-workout.
-3. If the app says your browser can't reconnect by itself, open `chrome://flags`, enable **Web Bluetooth new permissions backend**, and restart Chrome.
-4. Chrome menu → **Add to Home screen** / **Install app** puts PumpDeck on your home screen as a full-screen app.
+> Kommt der Hinweis, dass der Browser nicht automatisch verbinden kann: In Chrome `chrome://flags` öffnen, **Web Bluetooth new permissions backend** auf *Enabled* stellen und Chrome neu starten.
+
+### 2. Als App auf den Startbildschirm (empfohlen)
+Chrome-Menü **⋮** → **App installieren** bzw. **Zum Startbildschirm hinzufügen**. PumpDeck startet dann im Vollbild mit eigenem Icon. Updates kommen automatisch.
+
+### 3. Gewicht und Modus einstellen
+- **Resistance:** mit **−/+** oder dem Schieberegler. Mit **Sync both pumps** (standardmäßig an) bekommen beide Pumpen immer dasselbe Gewicht. Das gilt auch, wenn du an einer Pumpe selbst die Tasten drückst.
+- **Mode:**
+
+  | Modus | Wirkung |
+  |---|---|
+  | Standard | konstanter Widerstand |
+  | Eccentric | Zusatzlast beim Zurücklassen (0–50 %) |
+  | Concentric | Zusatzlast beim Ziehen (0–50 %) |
+  | Rowing | geschwindigkeitsabhängig, Stufe 1–10 |
+  | Chain | Last steigt mit dem Seilauszug, wie Ketten (0–50 %) |
+  | Power saving | Energiesparmodus |
+
+### 4. Trainieren
+1. Unter **Workout** auf **Start** tippen. Der Bildschirm bleibt dann an.
+2. Oben siehst du live für links und rechts: **Reps**, **Speed** (+ beim Ziehen, − beim Zurücklassen) und **Rope out** in cm.
+3. Die **Live**-Graphen zeigen Geschwindigkeit, Seilauszug und Temperatur. Oben rechts wählst du das Zeitfenster: 10, 30 oder 60 s.
+4. Im Balkendiagramm siehst du die Spitzengeschwindigkeit jeder Wiederholung, links und rechts nebeneinander. So erkennst du gut, wann die Kraft nachlässt.
+5. **Pause** / **Resume** nach Bedarf, am Ende **Finish & save**. Das Workout landet unter **History** und lässt sich als JSON exportieren.
+
+### 5. Seillänge kalibrieren (optional)
+Wenn **Rope out** nicht genau stimmt: **Pump settings** → **Rope calibration**. Seil auf eine gemessene Länge ausziehen, z. B. eine A4-Seite (29,7 cm) oder 1 m mit dem Maßband, dort halten, die echte Länge eintippen und auf **Calibrate** tippen.
+
+### Ohne Pumpe ausprobieren
+**Demo (2 pumps)** startet zwei simulierte Pumpen mit unterschiedlicher Bewegung.
+
+---
+
+## Weitere Funktionen
+
+Unter **Pump settings**:
+- kg/lb umschalten
+- Rep-Zähler zurücksetzen
+- Seil-Startpunkt setzen
+- Pumpeninfo auslesen
+- Pumpen ausschalten
+
+Unter **Protocol log**: alle Bluetooth-Pakete und ein Feld für eigene Befehle, für Tüftler.
+
+## Hinweise
+- Die App läuft nur, solange die Seite geöffnet ist. Im Hintergrund oder bei gesperrtem Bildschirm trennt Android die Verbindung.
+- Der Workout-Verlauf wird nur auf deinem Handy gespeichert.
+- Inoffizielles Projekt, nicht mit dem Hersteller verbunden. Nutzung auf eigene Verantwortung.
+
+## Für Entwickler
+Die ganze App ist eine Datei: [`index.html`](index.html). Das entschlüsselte Bluetooth-Protokoll steht in [PROTOCOL.md](PROTOCOL.md).
