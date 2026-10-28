@@ -83,6 +83,8 @@ section.card { background: var(--panel); border-radius: var(--r); padding: 16px;
 .sync .hint { grid-column: 1 / -1; }
 .plan-t { font-weight: 600; }
 .notify { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-weight: 600; min-height: 32px; }
+.notify-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.notify-row .hint { flex: 1 1 160px; }
 .notify input { width: 22px; height: 22px; accent-color: var(--accent); }
 .wk-head .pill { margin-top: 6px; }
 .bigcd { position: fixed; inset: 0; z-index: 30; display: grid; place-content: center; justify-items: center; gap: 8px; background: var(--overlay); text-align: center; padding: 16px; }
@@ -343,6 +345,7 @@ details .inner { display: grid; gap: 12px; }
         <label for="pVl">Stop at loss<span><input id="pVl" type="number" inputmode="numeric" min="0" max="60" step="5" value="0"> %</span></label>
       </div>
       <label for="pNotify" class="notify"><input id="pNotify" type="checkbox"> Rest timer as notification</label>
+      <div class="notify-row"><button id="pNotifyTest" type="button">Test notification</button><span id="pNotifyDiag" class="hint"></span></div>
       <p class="hint">Reps 0 = open set, end it yourself. "Stop at loss" ends the set when a rep's mean speed drops that far below the set's best rep (velocity-based training; 0 = off, 20–30 % is common).</p>
     </div>
 
@@ -1170,40 +1173,58 @@ const NTAG = 'pumpdeck-timer';
 let lastNotifAt = 0;
 async function swReg() { try { return await navigator.serviceWorker?.getRegistration(); } catch (_) { return null; } }
 function notifyAllowed() { return PLAN.notify && 'Notification' in window && Notification.permission === 'granted'; }
-async function notify(title, body, loud, actions) {
-  if (!notifyAllowed()) return;
-  const reg = await swReg(); if (!reg) return;
+let notifyErr = '';
+async function notify(title, body, loud, actions, force) {
+  if (!force && !notifyAllowed()) return false;
+  const reg = await swReg();
+  if (!reg) { notifyErr = 'no service worker (open the https page, not a saved file)'; renderNotifyDiag(); return false; }
   try {
     await reg.showNotification(title, {
-      body, tag: NTAG, renotify: !!loud, silent: !loud, icon: 'icon-192.png', badge: 'icon-192.png',
+      body, tag: NTAG, renotify: !!loud, silent: !loud, icon: 'icon-192.png',
       vibrate: loud ? [300, 120, 300] : undefined, actions: actions || [], data: { t: Date.now() },
     });
-  } catch (_) {}
+    notifyErr = ''; return true;
+  } catch (e) {
+    notifyErr = e.message; log('er', 'notification: ' + e.message); renderNotifyDiag(); return false;
+  }
 }
+async function renderNotifyDiag() {
+  const perm = 'Notification' in window ? Notification.permission : 'not supported';
+  const reg = await swReg();
+  const sw = reg ? (reg.active ? 'active' : 'installing') : 'missing';
+  $('pNotifyDiag').textContent = `Permission: ${perm} · service worker: ${sw}${notifyErr ? ' · error: ' + notifyErr : ''}`;
+}
+$('pNotifyTest').onclick = async () => {
+  if (!('Notification' in window)) { toast('This browser has no notifications'); return; }
+  let perm = Notification.permission;
+  if (perm === 'default') { try { perm = await Notification.requestPermission(); } catch (_) {} }
+  if (perm !== 'granted') { renderNotifyDiag(); toast('Permission is "' + perm + '". Allow notifications for this site in Chrome.'); return; }
+  const ok = await notify('PumpDeck test', 'If you can read this, rest notifications work.', true, [{ action: 'skip', title: 'OK' }], true);
+  renderNotifyDiag();
+  toast(ok ? 'Test sent. Check the notification shade.' : 'Could not show it: ' + notifyErr);
+};
 async function clearNotify() {
   const reg = await swReg(); if (!reg) return;
   try { for (const n of await reg.getNotifications({ tag: NTAG })) n.close(); } catch (_) {}
 }
 function restNotify(force) {
   const w = S.wk;
-  if (w.phase !== 'rest' || w.paused || !document.hidden || !notifyAllowed()) return;
-  if (!force && Date.now() - lastNotifAt < 5000) return;
+  if (w.phase !== 'rest' || w.paused || !notifyAllowed()) return;
+  if (!force && Date.now() - lastNotifAt < (document.hidden ? 5000 : 1000)) return;   // every second while you watch, every 5 s in the background
   lastNotifAt = Date.now();
   const left = Math.max(0, Math.ceil((w.restEnd - Date.now()) / 1000));
   const unit = S.unitKg ? 'kg' : 'lb', wt = (w.ds?.drops.length && DS.on) ? w.setW : primaryWeight();
   notify(`Rest ${fmt(left)}`, `Next: set ${w.set + 1} of ${PLAN.sets}${PLAN.reps ? ` · ${PLAN.reps} reps` : ''}${wt != null ? ` @ ${wt} ${unit}` : ''}`,
     false, [{ action: 'plus15', title: '+15 s' }, { action: 'skip', title: 'Start now' }]);
 }
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) restNotify(true);
-  else clearNotify();
-});
+document.addEventListener('visibilitychange', () => { if (document.hidden) restNotify(true); });
 navigator.serviceWorker?.addEventListener('message', e => {
   if (e.data?.type !== 'notif') return;
   if (e.data.action === 'plus15') $('restPlus').click();
   else if (e.data.action === 'skip') $('restSkip').click();
 });
 $('pNotify').checked = !!PLAN.notify;
+renderNotifyDiag();
 $('pNotify').onchange = async e => {
   if (e.target.checked) {
     if (!('Notification' in window) || !navigator.serviceWorker) { e.target.checked = false; toast('Notifications need the installed app or the https page in Chrome'); return; }
@@ -1211,7 +1232,7 @@ $('pNotify').onchange = async e => {
     if (perm === 'default') { try { perm = await Notification.requestPermission(); } catch (_) {} }
     if (perm !== 'granted') { e.target.checked = false; toast('Notifications are blocked. Allow them in Chrome site settings.'); return; }
   }
-  PLAN.notify = e.target.checked; savePlan();
+  PLAN.notify = e.target.checked; savePlan(); renderNotifyDiag();
   toast(PLAN.notify ? 'Rest timer will show as a notification when you leave the app' : 'Rest notifications off');
 };
 
@@ -1234,8 +1255,7 @@ function beginSet(n) {
     holdSync(2500); S.target = w.setW; renderLoad();
   } else w.setW = primaryWeight();
   showBigCd(null);
-  if (document.hidden) notify(`Go! Set ${n} of ${PLAN.sets}`, `${PLAN.reps ? PLAN.reps + ' reps' : 'Open set'}${primaryWeight() != null ? ` @ ${S.target ?? primaryWeight()} ${S.unitKg ? 'kg' : 'lb'}` : ''}`, true);
-  else clearNotify();
+  if (S.wk.phase === 'rest' || S.wk.phase === 'ready') notify(`Go! Set ${n} of ${PLAN.sets}`, `${PLAN.reps ? PLAN.reps + ' reps' : 'Open set'}${primaryWeight() != null ? ` @ ${S.target ?? primaryWeight()} ${S.unitKg ? 'kg' : 'lb'}` : ''}`, true);
   w.set = n; w.phase = 'set'; w.running = true; w.paused = false; w.side = {};
   dsReset();
   send(CMD.START);
@@ -1652,7 +1672,7 @@ renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 
 /* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
    so compare with version.json (fetched uncached) and offer a one-tap update ---- */
-const APP_VERSION = '2026-10-28.8';
+const APP_VERSION = '2026-10-28.9';
 $('appVer').textContent = APP_VERSION;
 async function checkVersion() {
   if (location.protocol !== 'https:') return;
