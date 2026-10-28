@@ -210,7 +210,7 @@ details .inner { display: grid; gap: 12px; }
         </select>
       </label>
     </div>
-    <div class="live-k"><span>Speed</span><span><span id="lvSpeed" class="num">0.0</span> m/s</span></div>
+    <div class="live-k"><span>Speed <small>(+ out, − in)</small></span><span><span id="lvSpeed" class="num">0.0</span> m/s</span></div>
     <canvas id="lvSpeedC" class="live" aria-label="Speed over time"></canvas>
     <div class="live-k"><span>Rope out</span><span><span id="lvLen" class="num">0</span> cm</span></div>
     <canvas id="lvLenC" class="live" aria-label="Rope length over time"></canvas>
@@ -359,6 +359,25 @@ try { const v = parseFloat(localStorage.getItem('pumpdeck.ropeCal')); if (v > 0.
 const rawCm = n => n * 35 * Math.PI / 50;
 const countsToCm = n => rawCm(n) * ropeCal;
 const speedToMs  = n => n * 35 * Math.PI / 300000 * ropeCal;
+// The pump reports speed as a magnitude. Direction comes from the rope length:
+// rope going out (pull) = positive, rope coming back in = negative.
+// If a firmware ever sends a signed value (≥ 0x8000), that sign wins.
+function trackDir(p) {
+  const L = p.status.length;
+  if (p.lastLen != null) {
+    const dl = L - p.lastLen;
+    if (dl) p.dir = dl > 0 ? 1 : -1;
+  }
+  p.lastLen = L;
+  if (p.status.speed === 0) p.dir = p.dir || 1;
+}
+function signedMs(p) {
+  const v = p.status.speed;
+  if (v >= 0x8000) return -speedToMs(0x10000 - v);
+  return speedToMs(v) * (p.dir || 1);
+}
+const fmtSigned = (v, d) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(d);
+const strongest = arr => arr.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0);
 
 function parseStatus(b) {
   if (b.length < 37) return null;
@@ -523,8 +542,8 @@ function connectDemo() {
   // Two different "athletes": the second one pulls a bit slower and shorter, drifts in tempo,
   // explodes on the pull and lowers slowly, and pauses briefly at the top.
   const PROFILES = [
-    { rate: 2.2, amp: 30, drift: 0.08, ease: 1.0, hold: 0,    noise: 0.3, batt: 87, ph: 0, temp0: 27, heat: 0.6 },
-    { rate: 1.8, amp: 25, drift: 0.18, ease: 1.6, hold: 0.15, noise: 0.6, batt: 64, ph: 1.4, temp0: 30, heat: 0.9 },
+    { rate: 2.2, amp: 20, drift: 0.08, ease: 1.0, hold: 0,    noise: 0.3, batt: 87, ph: 0, temp0: 27, heat: 0.6 },
+    { rate: 1.8, amp: 17, drift: 0.18, ease: 1.6, hold: 0.15, noise: 0.6, batt: 64, ph: 1.4, temp0: 30, heat: 0.9 },
   ];
   const prof = PROFILES[(n - 1) % 2];
   const sim = { weight: 10, mode: 1, ecc: 0, conc: 0, chain: 0, unitKg: true, reps: 0, counting: true,
@@ -566,7 +585,7 @@ function connectDemo() {
     // motor warms with load × speed and cools toward 24 °C
     sim.temp += (sim.weight * speedMs * P.heat * 0.02 - (sim.temp - 24) * 0.004);   // per 100 ms tick: ≈36–44 °C after a minute at 10 kg
     const lenCounts = Math.round(lenCm / countsToCm(1));
-    const speed = Math.round(speedMs * 300000 / (35 * Math.PI));
+    const speed = Math.round(speedMs * 300000 / (35 * Math.PI * ropeCal));   // inverse of speedToMs
     const d = [...u16(8120), ...u16(Math.round((pulling ? 1 : -1) * speedMs * 1500) & 0xffff), sim.batt, Math.round(sim.temp),
       ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
       sim.mode, ...u16(sim.weight), ...u16(speed), ...u16(lenCounts), sim.ecc, sim.conc, sim.chain,
@@ -586,12 +605,13 @@ function onStatus(p) {
     if (S.target == null) S.target = st.weight;
     if (!modeTouched) { S.mode = st.mode || 1; S.tune.ecc = st.ecc; S.tune.conc = st.conc; S.tune.chain = st.chain; renderModes(); }
   }
+  trackDir(p);
   const all = S.pumps.filter(x => x.status);
   const reps = all.reduce((a, x) => a + x.status.reps, 0);
-  const speed = Math.max(...all.map(x => speedToMs(x.status.speed)));
+  const speed = strongest(all.map(signedMs));
   const len = Math.max(...all.map(x => countsToCm(x.status.length)));
   $('rReps').textContent = S.wk.running || S.wk.elapsed ? Math.max(0, reps - S.wk.baseReps) : reps;
-  $('rSpeed').textContent = speed.toFixed(1);
+  $('rSpeed').textContent = fmtSigned(speed, 1);
   $('rLen').textContent = Math.round(len);
   trackWorkout(all);
   pushLive(all);
@@ -670,16 +690,16 @@ function pushLive(all) {
   const now = performance.now();
   if (now - lastLiveT < 40) return;            // one sample per ~40 ms is plenty, even with two pumps
   lastLiveT = now;
-  live.push({ t: now, s: all.map(x => speedToMs(x.status.speed)), l: all.map(x => countsToCm(x.status.length)), c: all.map(x => x.status.temp) });
+  live.push({ t: now, s: all.map(signedMs), l: all.map(x => countsToCm(x.status.length)), c: all.map(x => x.status.temp) });
   while (live.length && now - live[0].t > LIVE_MAX_S * 1000 + 1000) live.shift();
   const last = live[live.length - 1];
-  $('lvSpeed').textContent = Math.max(...last.s).toFixed(2);
+  $('lvSpeed').textContent = fmtSigned(strongest(last.s), 2);
   $('lvLen').textContent = Math.round(Math.max(...last.l));
   $('lvTemp').textContent = last.c.join(' / ');
   liveDirty = true;
 }
 function niceTop(v, step) { return Math.max(step, Math.ceil(v / step) * step); }
-function drawLive(canvas, key, unit, step, digits, autoMin) {
+function drawLive(canvas, key, unit, step, digits, autoMin, signed) {
   const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
   if (!W) return;
   if (canvas.width !== Math.round(W * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
@@ -699,6 +719,10 @@ function drawLive(canvas, key, unit, step, digits, autoMin) {
     bot = Math.floor(Math.min(...vals) / step) * step;
     top = Math.max(bot + step, Math.ceil(Math.max(...vals) / step) * step);
     if (top === Math.max(...vals)) top += step;
+    if (((top - bot) / step) % 2) top += step;   // keep the middle grid line on a whole step
+  } else if (signed) {
+    for (const p of pts) for (const v of p[key]) top = Math.max(top, Math.abs(v));
+    top = niceTop(top, step); bot = -top;
   } else {
     for (const p of pts) for (const v of p[key]) top = Math.max(top, v);
     top = niceTop(top, step);
@@ -709,7 +733,13 @@ function drawLive(canvas, key, unit, step, digits, autoMin) {
   for (const v of [bot, (bot + top) / 2, top]) {
     const y = Math.round(Y(v)) + .5;
     g.beginPath(); g.moveTo(padL, y); g.lineTo(W - padR, y); g.stroke();
-    g.fillText(v.toFixed(digits), padL - 6, y + 4);
+    g.fillText(signed ? fmtSigned(v, digits) : v.toFixed(digits), padL - 6, y + 4);
+  }
+  if (signed) { // stronger zero line, and which way is which
+    const y0 = Math.round(Y(0)) + .5;
+    g.strokeStyle = muted; g.globalAlpha = .6;
+    g.beginPath(); g.moveTo(padL, y0); g.lineTo(W - padR, y0); g.stroke(); g.globalAlpha = 1;
+    g.textAlign = 'right'; g.fillText('out', W - padR - 2, padT + 10); g.fillText('in', W - padR - 2, padT + ih - 4);
   }
   // x labels: seconds ago
   g.textAlign = 'center';
@@ -729,8 +759,9 @@ function drawLive(canvas, key, unit, step, digits, autoMin) {
     if (xy.length < 2) continue;
     g.beginPath(); xy.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
     g.strokeStyle = colors[k % 2]; g.lineWidth = 2; g.lineJoin = 'round'; g.stroke();
-    if (k === 0) { // soft area under the first pump's line
-      g.lineTo(xy[xy.length - 1][0], padT + ih); g.lineTo(xy[0][0], padT + ih); g.closePath();
+    if (k === 0) { // soft area between the first pump's line and the baseline (zero for signed graphs)
+      const yb = signed ? Y(0) : padT + ih;
+      g.lineTo(xy[xy.length - 1][0], yb); g.lineTo(xy[0][0], yb); g.closePath();
       g.fillStyle = colors[0] + '22'; g.fill();
     }
     const [ex, ey] = xy[xy.length - 1];
@@ -746,7 +777,7 @@ function liveLoop(ts) {
   // redraw ~15×/s while data flows so the window scrolls smoothly
   if ((liveDirty || live.length) && ts - lastDraw > 66 && document.visibilityState === 'visible') {
     lastDraw = ts; liveDirty = false;
-    drawLive($('lvSpeedC'), 's', 'm/s', 0.5, 1);
+    drawLive($('lvSpeedC'), 's', 'm/s', 0.5, 1, false, true);
     drawLive($('lvLenC'), 'l', 'cm', 50, 0);
     drawLive($('lvTempC'), 'c', '°C', 5, 0, true);
   }
@@ -835,7 +866,7 @@ function trackWorkout(all) {
   for (const p of all) {
     const side = S.pumps.indexOf(p);
     const sd = w.side[p.id] || (w.side[p.id] = { last: p.status.reps, peak: 0, n: 0 });
-    sd.peak = Math.max(sd.peak, speedToMs(p.status.speed));
+    sd.peak = Math.max(sd.peak, signedMs(p));   // peak pulling speed (positive side)
     if (p.status.reps > sd.last) {
       const load = p.status.weight;
       const travelM = countsToCm(p.status.pullLength || 0) / 100;
