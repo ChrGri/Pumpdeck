@@ -1268,7 +1268,9 @@ function trackWorkout(all) {
       const back = Math.max(REP_UP_CM, pull * 0.35);          // how far it must come back
       if (sd.ext - cm >= back) {                              // returned enough: rep done
         const low = cm;
-        finishRep(w, p, sd, side); changed = true;
+        if (w.pendingEnd && sd.n >= w.pendingEnd.target) {    // set is ending and this side is done: don't count extras
+          sd.phase = 'in'; sd.peak = 0; sd.sum = 0; sd.cnt = 0; sd.hi = -Infinity; sd.lo = Infinity; sd.ext = 0;
+        } else { finishRep(w, p, sd, side); changed = true; }
         sd.trough = low;
       }
     } else {
@@ -1279,16 +1281,17 @@ function trackWorkout(all) {
       }
     }
   }
-  if (!changed) return;
+  if (!changed) { checkPendingEnd(); return; }
   renderVbt(); drawChart(); renderWkStats(); renderWk();
   if (w.phase !== 'set') return;
   const sides = Object.values(w.side);
   const maxN = Math.max(0, ...sides.map(x => x.n));
-  if (PLAN.reps > 0 && maxN >= PLAN.reps) { endSet('target reached'); return; }
+  if (PLAN.reps > 0 && maxN >= PLAN.reps) { requestEnd('target reached', PLAN.reps); return; }
   if (PLAN.vl > 0) {
     const hit = sides.find(x => x.last1 && x.n >= 2 && x.last1.loss >= PLAN.vl);
-    if (hit) endSet(`velocity loss ${hit.last1.loss}%`);
+    if (hit) { requestEnd(`velocity loss ${hit.last1.loss}%`, maxN); return; }
   }
+  checkPendingEnd();
 }
 
 function renderVbt() {
@@ -1394,7 +1397,7 @@ function beginSet(n) {
   } else w.setW = primaryWeight();
   showBigCd(null);
   if (S.wk.phase === 'rest' || S.wk.phase === 'ready') notify(`Go! Set ${n} of ${PLAN.sets}`, `${PLAN.reps ? PLAN.reps + ' reps' : 'Open set'}${primaryWeight() != null ? ` @ ${S.target ?? primaryWeight()} ${S.unitKg ? 'kg' : 'lb'}` : ''}`, true);
-  w.set = n; w.phase = 'set'; w.running = true; w.paused = false; w.side = {};
+  w.set = n; w.phase = 'set'; w.running = true; w.paused = false; w.side = {}; w.pendingEnd = null;
   dsReset();
   send(CMD.START);
   beep(1320, 180);
@@ -1446,9 +1449,29 @@ function showBigCd(n) {
   }
   el.hidden = false;
 }
+// The two pumps never finish a rep at exactly the same moment. When one side triggers the end
+// of a set (target reps or velocity loss), keep counting until every side in use has done the
+// same number of reps, so the other side's last rep isn't cut off. Wait up to 6 s while that
+// side is mid-rep (rope out), up to 3 s if it isn't moving.
+function requestEnd(reason, target) {
+  const w = S.wk;
+  if (w.phase !== 'set' || w.pendingEnd) return;
+  w.pendingEnd = { reason, target, t0: Date.now() };
+  checkPendingEnd();
+}
+function checkPendingEnd() {
+  const w = S.wk, pe = w.pendingEnd;
+  if (!pe || w.phase !== 'set') return;
+  const used = Object.values(w.side).filter(x => x.n > 0);
+  const behind = used.filter(x => x.n < pe.target);
+  const waited = Date.now() - pe.t0;
+  const limit = behind.some(x => x.phase === 'out') ? 6000 : 3000;
+  if (!behind.length || waited >= limit) { w.pendingEnd = null; endSet(pe.reason); }
+}
 function onTick() {
   const w = S.wk;
   $('wkClock').textContent = fmt(wkElapsed());
+  if (w.phase === 'set' && w.pendingEnd && !w.paused) checkPendingEnd();
   if ((w.phase !== 'rest' && w.phase !== 'ready') || w.paused) return;
   const left = Math.ceil((w.restEnd - Date.now()) / 1000);
   if (w.phase === 'rest') { $('restLeft').textContent = fmt(left); restNotify(false); }
@@ -1864,7 +1887,7 @@ renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 
 /* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
    so compare with version.json (fetched uncached) and offer a one-tap update ---- */
-const APP_VERSION = '2026-10-29.5';
+const APP_VERSION = '2026-10-29.6';
 $('appVer').textContent = APP_VERSION;
 async function checkVersion() {
   if (location.protocol !== 'https:') return;
