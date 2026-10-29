@@ -209,6 +209,8 @@ body { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh) + 24p
 .tab .badge.warn { background: var(--warn); }
 .view { display: grid; gap: 16px; }
 #connPill { border: 0; min-height: 0; cursor: pointer; }
+.power { display: grid; gap: 8px; }
+.power #bPower { width: 100%; }
 .planlink { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; background: var(--panel-2); font-weight: 500; text-align: left; }
 .planlink .go { color: var(--accent); font-weight: 600; white-space: nowrap; }
 body.has-rest { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh) + 230px) !important; }
@@ -393,6 +395,13 @@ body.has-rest .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tab
   <section class="card" aria-labelledby="h-pumps">
     <h2 id="h-pumps">Pumps</h2>
     <div id="pumps" class="pumps"><p class="empty">No pump connected. Switch the pump on, then tap <em>Connect pump</em>. Connect a second one for two-handed training.</p></div>
+    <div id="powerRow" class="power" hidden>
+      <button id="bPower" class="danger" type="button">Switch all pumps off</button>
+      <div id="powerConfirm" class="confirm" hidden>
+        <span>Switch off all connected pumps?</span>
+        <div class="row"><button id="powerYes" class="danger" type="button">Switch off</button><button id="powerNo" type="button">Cancel</button></div>
+      </div>
+    </div>
     <div id="syncRow" class="sync" hidden>
       <label for="syncChk"><input id="syncChk" type="checkbox" checked> Sync both pumps</label>
       <span id="syncChip" class="pill">Waiting…</span>
@@ -434,11 +443,6 @@ body.has-rest .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tab
           <button id="calGo" type="button">Calibrate</button>
         </div>
         <button id="calReset" type="button">Reset to default (× 1.5)</button>
-      </div>
-      <button id="bPower" class="danger" type="button">Switch pumps off</button>
-      <div id="powerConfirm" class="confirm" hidden>
-        <span>Switch off all connected pumps?</span>
-        <div class="row"><button id="powerYes" class="danger" type="button">Switch off</button><button id="powerNo" type="button">Cancel</button></div>
       </div>
       <dl id="info" class="kv"></dl>
     </div>
@@ -1751,6 +1755,8 @@ function renderPumps(statusOnly) {
   $('connPill').textContent = S.pumps.length
     ? S.pumps.map((p, i) => `${S.pumps.length > 1 ? (i ? 'R ' : 'L ') : ''}${p.status ? p.status.battery + '%' : '…'}`).join(' · ')
     : 'Not connected';
+  $('powerRow').hidden = !S.pumps.length;
+  if (!S.pumps.length) $('powerConfirm').hidden = true;
   const sb = document.querySelector('.tab[data-tab="setup"] .badge');
   if (sb) { sb.hidden = S.pumps.length > 0; sb.className = 'badge warn'; }
   $('connPill').className = 'pill' + (S.pumps.some(p => p.demo) ? ' demo' : S.pumps.length ? ' on' : '');
@@ -1858,7 +1864,7 @@ renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 
 /* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
    so compare with version.json (fetched uncached) and offer a one-tap update ---- */
-const APP_VERSION = '2026-10-29.4';
+const APP_VERSION = '2026-10-29.5';
 $('appVer').textContent = APP_VERSION;
 async function checkVersion() {
   if (location.protocol !== 'https:') return;
