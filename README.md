@@ -54,9 +54,20 @@ Open the link on your phone and you're ready. Nothing to download or set up.
 
 ## Quick tutorial
 
+The app has four pages, switched with the tab bar at the bottom:
+
+| Page | What's there |
+|---|---|
+| **Train** | Resistance, workout clock with Start / Pause / End set / Finish, per-rep metrics and the rep chart, mode |
+| **Live** | Reps, speed and rope out per pump, live graphs (speed, rope length, temperature) |
+| **History** | Saved workouts, JSON export |
+| **Setup** | Pumps (connect, sync, auto-connect), workout plan (sets, rest, stop at loss, notifications, drop set), pump settings and calibration, protocol log |
+
+The header shows the battery of both pumps (tap it to go to Setup). The 3-2-1 countdown and the rest timer appear on every page.
+
 ### 1. Connect your pumps (once)
 1. Switch both pumps on.
-2. Tap **Connect pump** and pick the **left** pump in the dialog (named e.g. `Realtek-F8E4`).
+2. On **Setup**, tap **Connect pump** and pick the **left** pump in the dialog (named e.g. `Realtek-F8E4`).
 3. Tap **Add second pump** and pick the **right** pump.
 
 The cards now show **Left** (orange) and **Right** (green) with battery, temperature and firmware. The app remembers both pumps. Next time, they connect automatically as soon as they're switched on.
@@ -80,11 +91,11 @@ Chrome menu **⋮** → **Install app** / **Add to Home screen**. PumpDeck then 
   | Power saving | eco mode |
 
 ### 4. Train
-1. Under **Sets & rest**, set your plan:
+1. On **Setup → Workout plan** (or tap **Edit plan** on Train), set your plan:
    - **Sets** and **Reps** per set. Reps 0 = open set, which you end yourself.
    - **Rest** in seconds.
    - Optionally **Stop at loss**: the set ends when a rep's mean speed drops that many percent below your best rep in the set. 20–30 % is common for velocity-based training.
-2. Tap **Start**. A full-screen **3-2-1** countdown (with beeps) comes before every set. The screen stays on. Each set ends automatically when the reps are done (or at the velocity loss). The rest countdown is pinned to the bottom of the screen, so you see it wherever you've scrolled. Its last 3 seconds become the full-screen 3-2-1, then the next set starts. Use **−15 s / +15 s** to adjust the rest, or **Start next set** to skip it. Tap the 3-2-1 to start right away.
+2. On **Train**, tap **Start**. A full-screen **3-2-1** countdown (with beeps) comes before every set. The screen stays on. Each set ends automatically when the reps are done (or at the velocity loss). The rest countdown is pinned to the bottom of the screen, so you see it wherever you've scrolled. Its last 3 seconds become the full-screen 3-2-1, then the next set starts. Use **−15 s / +15 s** to adjust the rest, or **Start next set** to skip it. Tap the 3-2-1 to start right away.
    - Tick **Rest timer as notification** (Chrome asks for permission once). When you switch to another app or lock the screen during a rest, the countdown shows as a notification with **+15 s** and **Start now** buttons, and a loud **Go!** notification announces the next set. Keep PumpDeck open in the background; the app can't run once Android closes it.
 3. After every rep, the tiles show for left and right:
    - **Peak** and **Mean** speed while pulling (m/s)
@@ -96,7 +107,7 @@ Chrome menu **⋮** → **Install app** / **Add to Home screen**. PumpDeck then 
 7. After the last set the workout is saved automatically. **Finish & save** ends it early. **History** lists your workouts, and you can export it as JSON.
 
 ### 5. Auto drop set (optional)
-Tick **Auto drop set** before you start.
+On **Setup → Workout plan**, tick **Auto drop set** before you start.
 1. In each set, the first rep at a weight is a settling rep. The next 2 reps set your **reference** peak speed and rope range, per side.
 2. When a later rep is slower than **Speed <** (default 75 %) or shorter than **Range <** (default 80 %) of that reference, the load on both pumps drops by **Drop by** (default 20 %). The phone vibrates.
 3. A new reference is measured at the lighter weight. This repeats up to **Max drops** times per set (default 3).
@@ -105,7 +116,7 @@ Tick **Auto drop set** before you start.
 Drops show up as dashed lines in the rep chart and are saved with the workout.
 
 ### 6. Calibrate rope length (optional)
-If **Rope out** is off, go to **Pump settings** → **Rope calibration**:
+If **Rope out** is off, go to **Setup → Pump settings → Rope calibration**:
 1. Pull the rope out to a length you've measured, e.g. an A4 sheet's long side (29.7 cm) or 1 m with a tape measure.
 2. Hold it there and enter the real length.
 3. Tap **Calibrate**.

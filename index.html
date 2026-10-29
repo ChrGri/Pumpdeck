@@ -191,6 +191,28 @@ details .inner { display: grid; gap: 12px; }
   background: var(--panel-2); border-bottom: 1px solid var(--accent); font-weight: 600;
   padding: calc(env(safe-area-inset-top, 0px) + 8px) max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); }
 
+/* Tabs */
+:root { --tabh: 60px; }
+body { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh) + 24px) !important; }
+.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; grid-template-columns: repeat(4, 1fr);
+  background: var(--panel); border-top: 1px solid var(--line);
+  padding: 0 max(8px, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) max(8px, env(safe-area-inset-left, 0px)); }
+.tab { position: relative; background: none; border: 0; border-radius: 0; min-height: var(--tabh); display: grid; justify-items: center; align-content: center; gap: 2px;
+  color: var(--muted); font-size: .75rem; letter-spacing: .04em; font-weight: 600; padding: 6px 0; }
+.tab svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tab[aria-current="page"] { color: var(--accent); }
+.tab[aria-current="page"]::before { content: ""; position: absolute; top: 0; left: 30%; right: 30%; height: 3px; border-radius: 0 0 3px 3px; background: var(--accent); }
+.tab .badge { position: absolute; top: 6px; left: calc(50% + 8px); min-width: 8px; height: 8px; border-radius: 99px; background: var(--good); font-style: normal; }
+.tab .badge.warn { background: var(--warn); }
+.view { display: grid; gap: 16px; }
+#connPill { border: 0; min-height: 0; cursor: pointer; }
+.planlink { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; background: var(--panel-2); font-weight: 500; text-align: left; }
+.planlink .go { color: var(--accent); font-weight: 600; white-space: nowrap; }
+body.has-rest { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh) + 230px) !important; }
+.rest { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh)) !important; padding-bottom: 14px !important; z-index: 19 !important; }
+.toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh) + 16px) !important; }
+body.has-rest .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh) + 240px) !important; }
+
 /* Footer */
 .foot { display: grid; gap: 8px; justify-items: center; text-align: center; color: var(--muted); font-size: .85rem; padding-block: 8px 4px; }
 .foot .links { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
@@ -215,33 +237,14 @@ details .inner { display: grid; gap: 12px; }
 <main>
   <header class="top">
     <div class="brand"><h1>PumpDeck</h1><small>for TT BOT / Go Tone pumps</small></div>
-    <span id="connPill" class="pill">Offline</span>
+    <button id="connPill" class="pill" type="button">Offline</button>
   </header>
 
   <div id="noBt" class="notice" hidden>
     <strong>Bluetooth isn't available here.</strong> Open this page over HTTPS in Chrome on Android (or the Bluefy browser on iPhone), with Bluetooth and location switched on. You can still try everything with <em>Demo (2 pumps)</em>.
   </div>
 
-  <section class="card" aria-labelledby="h-pumps">
-    <h2 id="h-pumps">Pumps</h2>
-    <div id="pumps" class="pumps"><p class="empty">No pump connected. Switch the pump on, then tap <em>Connect pump</em>. Connect a second one for two-handed training.</p></div>
-    <div id="syncRow" class="sync" hidden>
-      <label for="syncChk"><input id="syncChk" type="checkbox" checked> Sync both pumps</label>
-      <span id="syncChip" class="pill">Waiting…</span>
-      <p class="hint">Same resistance, unit, mode and mode settings on both. A change on either pump, even with its own buttons, is copied to the other.</p>
-    </div>
-    <div id="autoRow" class="sync" hidden>
-      <label for="autoChk"><input id="autoChk" type="checkbox" checked> Connect automatically</label>
-      <button id="autoForget" type="button" class="danger" style="min-height:36px;padding:6px 10px">Forget</button>
-      <p id="autoMsg" class="hint"></p>
-      <p id="autoTip" class="hint" hidden>In Chrome, open <code>chrome://flags</code>, search for <strong>Web Bluetooth new permissions backend</strong>, set it to Enabled and restart Chrome. Until then, tap Connect pump each time.</p>
-    </div>
-    <div class="row">
-      <button id="btnConnect" class="primary" type="button">Connect pump</button>
-      <button id="btnDemo" type="button">Demo pump</button>
-    </div>
-  </section>
-
+  <div class="view" data-view="train">
   <section class="card" aria-labelledby="h-load">
     <h2 id="h-load">Resistance</h2>
     <div class="load">
@@ -251,40 +254,6 @@ details .inner { display: grid; gap: 12px; }
     </div>
     <input id="wSlider" type="range" min="5" max="30" step="1" value="5" aria-label="Resistance">
     <div class="scale"><span id="wMin" class="num">5</span><span id="wMax" class="num">30</span></div>
-    <div class="readout">
-      <div class="stat"><div class="k">Reps</div><div id="rReps" class="v num multi">0</div></div>
-      <div class="stat"><div class="k">Speed</div><div id="rSpeed" class="v num multi">0.0</div><div class="u">m/s</div></div>
-      <div class="stat"><div class="k">Rope out</div><div id="rLen" class="v num multi">0</div><div class="u">cm</div></div>
-    </div>
-  </section>
-
-  <section class="card" aria-labelledby="h-live">
-    <div class="live-head">
-      <h2 id="h-live">Live</h2>
-      <label class="win" for="liveWin">Window
-        <select id="liveWin">
-          <option value="10">10 s</option>
-          <option value="30" selected>30 s</option>
-          <option value="60">60 s</option>
-        </select>
-      </label>
-    </div>
-    <div class="live-k"><span>Speed <small>(+ out, − in)</small></span><span><span id="lvSpeed" class="num">0.0</span> m/s</span></div>
-    <canvas id="lvSpeedC" class="live" aria-label="Speed over time"></canvas>
-    <div class="live-k"><span>Rope out</span><span><span id="lvLen" class="num">0</span> cm</span></div>
-    <canvas id="lvLenC" class="live" aria-label="Rope length over time"></canvas>
-    <div class="live-k"><span>Temperature</span><span><span id="lvTemp" class="num">–</span> °C</span></div>
-    <canvas id="lvTempC" class="live" aria-label="Pump temperature over time"></canvas>
-  </section>
-
-  <section class="card" aria-labelledby="h-mode">
-    <h2 id="h-mode">Mode</h2>
-    <div id="modes" class="modes"></div>
-    <div id="tune" class="tune" hidden>
-      <label for="tSlider"><span id="tLabel">Eccentric load</span><span id="tVal" class="num">0%</span></label>
-      <input id="tSlider" type="range" min="0" max="50" step="1" value="0">
-      <p id="tHint" class="hint"></p>
-    </div>
   </section>
 
   <section class="card" aria-labelledby="h-wk">
@@ -300,15 +269,12 @@ details .inner { display: grid; gap: 12px; }
       </div>
     </div>
 
-    <div id="restBox" class="rest" hidden>
-      <div class="k">Rest</div>
-      <div id="restLeft" class="rest-t num">1:30</div>
-      <div id="restNext" class="hint">Next: set 2 of 3</div>
-      <div class="row">
-        <button id="restMinus" type="button">−15 s</button>
-        <button id="restPlus" type="button">+15 s</button>
-        <button id="restSkip" class="primary" type="button">Start next set</button>
-      </div>
+    <button id="planLink" class="planlink" type="button"><span id="planSum">3 × 10 · 90 s rest</span><span class="go">Edit plan ›</span></button>
+
+    <div class="row">
+      <button id="wkStart" class="primary" type="button">Start</button>
+      <button id="wkEndSet" type="button" disabled>End set</button>
+      <button id="wkFinish" type="button" disabled>Finish &amp; save</button>
     </div>
 
     <div class="readout vbt">
@@ -330,12 +296,84 @@ details .inner { display: grid; gap: 12px; }
     </div>
     <canvas id="chart" aria-label="Rep chart for the current set, with the load per rep"></canvas>
 
-    <div class="row">
-      <button id="wkStart" class="primary" type="button">Start</button>
-      <button id="wkEndSet" type="button" disabled>End set</button>
-      <button id="wkFinish" type="button" disabled>Finish &amp; save</button>
-    </div>
+    <p class="hint">Peak and mean speed are measured while pulling out. Power ≈ load × g × speed (an estimate). *Energy is a rough estimate from load × rope travel at 25% efficiency.</p>
+  </section>
 
+  <section class="card" aria-labelledby="h-mode">
+    <h2 id="h-mode">Mode</h2>
+    <div id="modes" class="modes"></div>
+    <div id="tune" class="tune" hidden>
+      <label for="tSlider"><span id="tLabel">Eccentric load</span><span id="tVal" class="num">0%</span></label>
+      <input id="tSlider" type="range" min="0" max="50" step="1" value="0">
+      <p id="tHint" class="hint"></p>
+    </div>
+  </section>
+  </div>
+
+  <div class="view" data-view="live" hidden>
+  <section class="card" aria-labelledby="h-live">
+    <div class="live-head">
+      <h2 id="h-live">Live</h2>
+      <label class="win" for="liveWin">Window
+        <select id="liveWin">
+          <option value="10">10 s</option>
+          <option value="30" selected>30 s</option>
+          <option value="60">60 s</option>
+        </select>
+      </label>
+    </div>
+    <div class="readout">
+      <div class="stat"><div class="k">Reps</div><div id="rReps" class="v num multi">0</div></div>
+      <div class="stat"><div class="k">Speed</div><div id="rSpeed" class="v num multi">0.0</div><div class="u">m/s</div></div>
+      <div class="stat"><div class="k">Rope out</div><div id="rLen" class="v num multi">0</div><div class="u">cm</div></div>
+    </div>
+    <div class="live-k"><span>Speed <small>(+ out, − in)</small></span><span><span id="lvSpeed" class="num">0.0</span> m/s</span></div>
+    <canvas id="lvSpeedC" class="live" aria-label="Speed over time"></canvas>
+    <div class="live-k"><span>Rope out</span><span><span id="lvLen" class="num">0</span> cm</span></div>
+    <canvas id="lvLenC" class="live" aria-label="Rope length over time"></canvas>
+    <div class="live-k"><span>Temperature</span><span><span id="lvTemp" class="num">–</span> °C</span></div>
+    <canvas id="lvTempC" class="live" aria-label="Pump temperature over time"></canvas>
+  </section>
+  </div>
+
+  <div class="view" data-view="history" hidden>
+  <section class="card" aria-labelledby="h-hist">
+    <h2 id="h-hist">History</h2>
+    <div id="hist" class="hist"></div>
+    <div class="row">
+      <button id="histExport" type="button">Export JSON</button>
+      <button id="histClear" class="danger" type="button">Clear history</button>
+    </div>
+    <div id="histConfirm" class="confirm" hidden>
+      <span>Delete all saved workouts on this phone?</span>
+      <div class="row"><button id="histYes" class="danger" type="button">Delete</button><button id="histNo" type="button">Keep</button></div>
+    </div>
+  </section>
+  </div>
+
+  <div class="view" data-view="setup" hidden>
+  <section class="card" aria-labelledby="h-pumps">
+    <h2 id="h-pumps">Pumps</h2>
+    <div id="pumps" class="pumps"><p class="empty">No pump connected. Switch the pump on, then tap <em>Connect pump</em>. Connect a second one for two-handed training.</p></div>
+    <div id="syncRow" class="sync" hidden>
+      <label for="syncChk"><input id="syncChk" type="checkbox" checked> Sync both pumps</label>
+      <span id="syncChip" class="pill">Waiting…</span>
+      <p class="hint">Same resistance, unit, mode and mode settings on both. A change on either pump, even with its own buttons, is copied to the other.</p>
+    </div>
+    <div id="autoRow" class="sync" hidden>
+      <label for="autoChk"><input id="autoChk" type="checkbox" checked> Connect automatically</label>
+      <button id="autoForget" type="button" class="danger" style="min-height:36px;padding:6px 10px">Forget</button>
+      <p id="autoMsg" class="hint"></p>
+      <p id="autoTip" class="hint" hidden>In Chrome, open <code>chrome://flags</code>, search for <strong>Web Bluetooth new permissions backend</strong>, set it to Enabled and restart Chrome. Until then, tap Connect pump each time.</p>
+    </div>
+    <div class="row">
+      <button id="btnConnect" class="primary" type="button">Connect pump</button>
+      <button id="btnDemo" type="button">Demo pump</button>
+    </div>
+  </section>
+
+  <section id="plan" class="card" aria-labelledby="h-plan">
+    <h2 id="h-plan">Workout plan</h2>
     <div class="sync plan">
       <span class="plan-t">Sets &amp; rest</span>
       <span id="planChip" class="pill">3 × 10</span>
@@ -361,24 +399,10 @@ details .inner { display: grid; gap: 12px; }
       </div>
       <p id="dsMsg" class="hint">The first 2 full reps at each weight set your reference speed and range. When a rep gets slower or shorter than that, the next one is lighter.</p>
     </div>
-    <p class="hint">Peak and mean speed are measured while pulling out. Power ≈ load × g × speed (an estimate). *Energy is a rough estimate from load × rope travel at 25% efficiency.</p>
   </section>
 
-  <section class="card" aria-labelledby="h-hist">
-    <h2 id="h-hist">History</h2>
-    <div id="hist" class="hist"></div>
-    <div class="row">
-      <button id="histExport" type="button">Export JSON</button>
-      <button id="histClear" class="danger" type="button">Clear history</button>
-    </div>
-    <div id="histConfirm" class="confirm" hidden>
-      <span>Delete all saved workouts on this phone?</span>
-      <div class="row"><button id="histYes" class="danger" type="button">Delete</button><button id="histNo" type="button">Keep</button></div>
-    </div>
-  </section>
-
-  <details>
-    <summary>Pump settings</summary>
+  <section class="card" aria-labelledby="h-pset">
+    <h2 id="h-pset">Pump settings</h2>
     <div class="inner">
       <div class="row" style="align-items:center; justify-content:space-between">
         <span>Units</span>
@@ -408,7 +432,7 @@ details .inner { display: grid; gap: 12px; }
       </div>
       <dl id="info" class="kv"></dl>
     </div>
-  </details>
+  </section>
 
   <details>
     <summary>Protocol log</summary>
@@ -421,12 +445,33 @@ details .inner { display: grid; gap: 12px; }
       <p class="hint">Type a frame without its checksum, e.g. <code>5A21231000</code> asks for the weight limits. Frames go to every connected pump.</p>
     </div>
   </details>
+
   <footer class="foot">
     <span>Enjoying PumpDeck? Support its development:</span>
     <span class="links"><a href="https://ko-fi.com/captainchris88" target="_blank" rel="noopener">Ko-fi</a><a href="https://buymeacoffee.com/captainchris" target="_blank" rel="noopener">Buy Me a Coffee</a><a href="https://github.com/ChrGri/Pumpdeck" target="_blank" rel="noopener">GitHub</a></span>
     <span class="lic">Unofficial · CC BY-NC-SA 4.0 · version <span id="appVer"></span></span>
   </footer>
+  </div>
 </main>
+
+<div id="restBox" class="rest" hidden>
+  <div class="k">Rest</div>
+  <div id="restLeft" class="rest-t num">1:30</div>
+  <div id="restNext" class="hint">Next: set 2 of 3</div>
+  <div class="row">
+    <button id="restMinus" type="button">−15 s</button>
+    <button id="restPlus" type="button">+15 s</button>
+    <button id="restSkip" class="primary" type="button">Start next set</button>
+  </div>
+</div>
+
+
+<nav class="tabs" aria-label="Pages">
+  <button class="tab" type="button" data-tab="train" aria-label="Train"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10v4M6 7v10M18 7v10M21 10v4M6 12h12"/></svg><span>Train</span><i class="badge" hidden></i></button>
+  <button class="tab" type="button" data-tab="live" aria-label="Live"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2-6 4 12 2-6h6"/></svg><span>Live</span><i class="badge" hidden></i></button>
+  <button class="tab" type="button" data-tab="history" aria-label="History"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg><span>History</span><i class="badge" hidden></i></button>
+  <button class="tab" type="button" data-tab="setup" aria-label="Setup"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></svg><span>Setup</span><i class="badge" hidden></i></button>
+</nav>
 <div id="bigCd" class="bigcd" hidden aria-live="assertive">
   <div id="bigCdLabel" class="k">Get ready · set 1 of 3</div>
   <div id="bigCdNum" class="n num">3</div>
@@ -1388,7 +1433,18 @@ function endSetSilently() {   // finishing mid-set: keep the set in the summary 
   w.sets.push({ set: w.set, reps: Math.max(...[0, 1].map(sd => reps.filter(r => r.side === sd).length)), load: w.setW,
     bestMean: Math.max(0, ...reps.map(r => r.mean)), lastLoss: 0, drops: (w.ds?.drops || []).map(d => d.to), end: 'finished' });
 }
+function renderPlanSum() {
+  const el = $('planSum'); if (!el) return;
+  el.textContent = `${PLAN.sets} × ${PLAN.reps || 'open'} · ${PLAN.rest} s rest${PLAN.vl ? ` · stop at −${PLAN.vl}%` : ''}${DS.on ? ' · drop set' : ''}`;
+}
+function renderTrainBadge() {
+  const b = document.querySelector('.tab[data-tab="train"] .badge'); if (!b) return;
+  const ph = S.wk.phase;
+  b.hidden = ph === 'idle' || ph === 'done';
+  b.className = 'badge' + (ph === 'rest' || ph === 'ready' ? ' warn' : '');
+}
 function renderWk() {
+  renderPlanSum(); renderTrainBadge();
   const w = S.wk, chip = $('wkSet');
   const target = PLAN.reps > 0 ? ` × ${PLAN.reps}` : '';
   $('planChip').textContent = `${PLAN.sets}${PLAN.reps > 0 ? ' × ' + PLAN.reps : ' sets, open'}${PLAN.vl ? ` · stop at −${PLAN.vl}%` : ''}`;
@@ -1469,6 +1525,7 @@ function doDrop(reason, r) {
   renderDS(); drawChart();
 }
 function renderDS() {
+  renderPlanSum();
   $('dsOn').checked = DS.on;
   for (const k of ['pct', 'max', 'speed', 'range']) { const el = $('ds' + k[0].toUpperCase() + k.slice(1)); if (document.activeElement !== el) el.value = DS[k]; }
   const chip = $('dsChip'), msg = $('dsMsg'), w = S.wk, ds = w.ds;
@@ -1623,7 +1680,11 @@ $('histYes').onclick = () => { saveHist([]); renderHist(); $('histConfirm').hidd
 /* ================= Pumps list & info ================= */
 function renderPumps(statusOnly) {
   const box = $('pumps');
-  $('connPill').textContent = S.pumps.length ? `${S.pumps.length} connected` : 'Offline';
+  $('connPill').textContent = S.pumps.length
+    ? S.pumps.map((p, i) => `${S.pumps.length > 1 ? (i ? 'R ' : 'L ') : ''}${p.status ? p.status.battery + '%' : '…'}`).join(' · ')
+    : 'Not connected';
+  const sb = document.querySelector('.tab[data-tab="setup"] .badge');
+  if (sb) { sb.hidden = S.pumps.length > 0; sb.className = 'badge warn'; }
   $('connPill').className = 'pill' + (S.pumps.some(p => p.demo) ? ' demo' : S.pumps.length ? ' on' : '');
   $('btnConnect').textContent = S.pumps.length ? 'Add second pump' : 'Connect pump';
   $('btnConnect').disabled = S.pumps.length >= 2;
@@ -1633,6 +1694,7 @@ function renderPumps(statusOnly) {
   renderSync();
   if (!S.pumps.length) { box.innerHTML = '<p class="empty">No pump connected. Switch the pump on, then tap <em>Connect pump</em>. Connect a second one for two-handed training.</p>'; return; }
   if (statusOnly && box.querySelectorAll('.pump').length === S.pumps.length) {
+    $('connPill').textContent = S.pumps.map((p, i) => `${S.pumps.length > 1 ? (i ? 'R ' : 'L ') : ''}${p.status ? p.status.battery + '%' : '…'}`).join(' · ');
     S.pumps.forEach((p, i) => { const el = box.children[i]; el.querySelector('.batt').textContent = p.status ? p.status.battery + '%' : '–'; el.querySelector('.meta').innerHTML = meta(p); });
     return;
   }
@@ -1728,7 +1790,7 @@ renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 
 /* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
    so compare with version.json (fetched uncached) and offer a one-tap update ---- */
-const APP_VERSION = '2026-10-28.12';
+const APP_VERSION = '2026-10-29.1';
 $('appVer').textContent = APP_VERSION;
 async function checkVersion() {
   if (location.protocol !== 'https:') return;
@@ -1747,6 +1809,28 @@ $('updGo').onclick = async () => {
 checkVersion();
 setInterval(checkVersion, 5 * 60 * 1000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkVersion(); });
+/* ---- pages: Train · Live · History · Setup ---- */
+const TABS = ['train', 'live', 'history', 'setup'];
+function showTab(t, fromHash) {
+  if (!TABS.includes(t)) t = 'train';
+  for (const v of document.querySelectorAll('.view')) v.hidden = v.dataset.view !== t;
+  for (const b of document.querySelectorAll('.tab')) b.setAttribute('aria-current', b.dataset.tab === t ? 'page' : 'false');
+  try { localStorage.setItem('pumpdeck.tab', t); } catch (_) {}
+  if (!fromHash && location.hash !== '#' + t) { try { history.replaceState(null, '', '#' + t); } catch (_) {} }
+  window.scrollTo(0, 0);
+  requestAnimationFrame(() => { drawChart(); liveDirty = true; });   // canvases can only size themselves once visible
+}
+for (const b of document.querySelectorAll('.tab')) b.onclick = () => showTab(b.dataset.tab);
+window.addEventListener('hashchange', () => showTab(location.hash.slice(1), true));
+$('connPill').onclick = () => showTab('setup');
+$('planLink').onclick = () => { showTab('setup'); requestAnimationFrame(() => $('plan').scrollIntoView({ block: 'start' })); };
+{
+  let start = location.hash.slice(1);
+  if (!TABS.includes(start)) { try { start = localStorage.getItem('pumpdeck.tab'); } catch (_) { start = null; } }
+  if (!TABS.includes(start)) start = loadKnown().length ? 'train' : 'setup';   // first visit: connect pumps first
+  showTab(start, true);
+}
+
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
