@@ -93,9 +93,12 @@ section.card { background: var(--panel); border-radius: var(--r); padding: 16px;
 @media (prefers-reduced-motion: no-preference) { .bigcd .n.pop { animation: pop .9s ease-out; } @keyframes pop { from { transform: scale(1.35); opacity: .4; } to { transform: scale(1); opacity: 1; } } }
 body.has-rest { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 230px); }
 body.has-rest .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + 240px); }
-.rest { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; border-radius: 18px 18px 0 0; border-bottom: 0; box-shadow: 0 -8px 30px rgba(0,0,0,.45);
-  padding: 14px max(16px, env(safe-area-inset-right, 0px)) calc(14px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
-.rest { display: grid; gap: 6px; justify-items: center; text-align: center; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 12px; padding: 14px 12px; }
+/* Rest sheet: pinned above the tab bar, rounded only at the top, flush with the tab bar below */
+.rest { position: fixed; left: 0; right: 0; z-index: 19; display: grid; gap: 6px; justify-items: center; text-align: center;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh));
+  background: var(--panel-2); border: 1px solid var(--accent); border-bottom: 0; border-radius: 18px 18px 0 0;
+  box-shadow: 0 -8px 30px rgba(0,0,0,.45);
+  padding: 14px max(16px, env(safe-area-inset-right, 0px)) 18px max(16px, env(safe-area-inset-left, 0px)); }
 .rest .k { font-size: .75rem; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
 .rest-t { font-family: var(--font-display); font-weight: 700; font-size: 4rem; line-height: 1; color: var(--accent); }
 .rest .row { width: 100%; }
@@ -230,7 +233,6 @@ body.has-setbar { padding-top: calc(env(safe-area-inset-top, 0px) + 88px) !impor
 .planlink { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; background: var(--panel-2); font-weight: 500; text-align: left; }
 .planlink .go { color: var(--accent); font-weight: 600; white-space: nowrap; }
 body.has-rest { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh) + 230px) !important; }
-.rest { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh)) !important; padding-bottom: 14px !important; z-index: 19 !important; }
 .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh) + 16px) !important; }
 body.has-rest .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh) + 240px) !important; }
 
@@ -2004,7 +2006,7 @@ renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 
 /* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
    so compare with version.json (fetched uncached) and offer a one-tap update ---- */
-const APP_VERSION = '2026-10-29.8';
+const APP_VERSION = '2026-10-29.9';
 $('appVer').textContent = APP_VERSION;
 async function checkVersion() {
   if (location.protocol !== 'https:') return;
