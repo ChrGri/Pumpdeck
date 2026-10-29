@@ -155,6 +155,9 @@ canvas { width: 100%; height: 140px; display: block; background: var(--panel-2);
 .win { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .85rem; }
 .win select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-height: 40px; color: var(--fg); }
 .live-k { display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); margin-bottom: -8px; }
+.agree { display: flex; align-items: center; gap: 10px; }
+.agree .hint { flex: 1; margin: 0; }
+.agree button { min-height: 36px; padding: 6px 12px; }
 .live-k .num { font-family: var(--font-display); font-size: 1.15rem; color: var(--fg); }
 canvas.live { height: 120px; }
 #chart { height: 200px; }
@@ -362,6 +365,12 @@ body.has-rest .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tab
     <canvas id="lvLenC" class="live" aria-label="Rope length over time"></canvas>
     <div class="live-k"><span>Temperature</span><span><span id="lvTemp" class="num">–</span> °C</span></div>
     <canvas id="lvTempC" class="live" aria-label="Pump temperature over time"></canvas>
+    <div class="live-k"><span>Motor current <small>(raw units)</small></span><span><span id="lvCur" class="num">–</span></span></div>
+    <canvas id="lvCurC" class="live" aria-label="Motor current over time"></canvas>
+    <div class="agree">
+      <p id="curAgree" class="hint">Pull a few reps: the app checks whether the sign of the motor current follows the rope direction.</p>
+      <button id="curAgreeReset" type="button">Reset</button>
+    </div>
   </section>
   </div>
 
@@ -542,6 +551,7 @@ function trackDir(p) {
   const L = p.status.length;
   if (p.lastLen != null) {
     const dl = L - p.lastLen;
+    p.dl = dl;
     if (dl) p.dir = dl > 0 ? 1 : -1;
   }
   p.lastLen = L;
@@ -959,16 +969,48 @@ $('liveWin').onchange = e => {
   try { localStorage.setItem('pumpdeck.liveWin', liveWin); } catch (_) {}
 };
 let lastLiveT = 0;
+/* Motor current vs rope direction.
+   For every status sample where the rope clearly moved (≥ 1 count) and the current is clearly
+   non-zero, compare sign(current) with the rope direction. Over the last 300 such samples per
+   pump: "same" = current positive while pulling out, "opposite" = negative while pulling out.
+   If one of the two is ≥ 90 %, the current's sign could replace the slower rope-based direction. */
+const CUR_N = 300;
+function trackCurrent(p) {
+  const I = p.status.current, dl = p.dl || 0;
+  p.imax = Math.max((p.imax || 0) * 0.999, Math.abs(I));
+  if (!dl || Math.abs(I) < Math.max(10, (p.imax || 0) * 0.08)) return;
+  const st = p.cur || (p.cur = { buf: [] });
+  st.buf.push(Math.sign(I) === Math.sign(dl) ? 1 : -1);
+  if (st.buf.length > CUR_N) st.buf.shift();
+}
+function renderCurAgree() {
+  const el = $('curAgree');
+  const parts = S.pumps.filter(p => p.status).map((p, i) => {
+    const b = p.cur?.buf || [];
+    const name = S.pumps.length > 1 ? (i ? 'R' : 'L') + ': ' : '';
+    if (b.length < 30) return `${name}collecting ${b.length}/30 samples`;
+    const same = b.filter(x => x > 0).length / b.length * 100;
+    const best = Math.max(same, 100 - same);
+    const rel = same >= 50 ? 'same sign as' : 'opposite sign to';
+    return `${name}${Math.round(best)}% ${rel} rope direction (${b.length} samples)${best >= 90 ? ' ✓ usable' : best < 70 ? ' ✗ not a direction signal' : ''}`;
+  });
+  el.textContent = parts.length ? parts.join(' · ') : 'Connect a pump and pull a few reps: the app checks whether the sign of the motor current follows the rope direction.';
+}
+$('curAgreeReset').onclick = () => { for (const p of S.pumps) p.cur = { buf: [] }; renderCurAgree(); };
+
 function pushLive(all) {
+  for (const p of all) trackCurrent(p);
   const now = performance.now();
   if (now - lastLiveT < 40) return;            // one sample per ~40 ms is plenty, even with two pumps
   lastLiveT = now;
-  live.push({ t: now, s: all.map(signedMs), l: all.map(x => countsToCm(x.status.length)), c: all.map(x => x.status.temp) });
+  live.push({ t: now, s: all.map(signedMs), l: all.map(x => countsToCm(x.status.length)), c: all.map(x => x.status.temp), i: all.map(x => x.status.current) });
   while (live.length && now - live[0].t > LIVE_MAX_S * 1000 + 1000) live.shift();
   const last = live[live.length - 1];
   $('lvSpeed').textContent = fmtSigned(strongest(last.s), 2);
   $('lvLen').textContent = Math.round(Math.max(...last.l));
   $('lvTemp').textContent = last.c.join(' / ');
+  $('lvCur').textContent = last.i.join(' / ');
+  if (Math.random() < 0.1) renderCurAgree();
   liveDirty = true;
 }
 function niceTop(v, step) { return Math.max(step, Math.ceil(v / step) * step); }
@@ -994,8 +1036,13 @@ function drawLive(canvas, key, unit, step, digits, autoMin, signed) {
     if (top === Math.max(...vals)) top += step;
     if (((top - bot) / step) % 2) top += step;   // keep the middle grid line on a whole step
   } else if (signed) {
+    if (step === 'auto') top = 1;
     for (const p of pts) for (const v of p[key]) top = Math.max(top, Math.abs(v));
-    top = niceTop(top, step); bot = -top;
+    if (step === 'auto') {   // unknown scale: round up to 1, 2 or 5 × 10^k
+      const m = Math.max(1, isFinite(top) ? top : 1), e = Math.pow(10, Math.floor(Math.log10(m)));
+      top = [1, 2, 5, 10].map(k => k * e).find(x => x >= m);
+    } else top = niceTop(top, step);
+    bot = -top;
   } else {
     for (const p of pts) for (const v of p[key]) top = Math.max(top, v);
     top = niceTop(top, step);
@@ -1006,13 +1053,14 @@ function drawLive(canvas, key, unit, step, digits, autoMin, signed) {
   for (const v of [bot, (bot + top) / 2, top]) {
     const y = Math.round(Y(v)) + .5;
     g.beginPath(); g.moveTo(padL, y); g.lineTo(W - padR, y); g.stroke();
-    g.fillText(signed ? fmtSigned(v, digits) : v.toFixed(digits), padL - 6, y + 4);
+    const lab = v === 0 ? '0' : Math.abs(top) >= 1000 ? fmtSigned(v / 1000, Math.abs(v) % 1000 ? 1 : 0) + 'k' : signed ? fmtSigned(v, digits) : v.toFixed(digits);
+    g.fillText(lab, padL - 6, y + 4);
   }
   if (signed) { // stronger zero line, and which way is which
     const y0 = Math.round(Y(0)) + .5;
     g.strokeStyle = muted; g.globalAlpha = .6;
     g.beginPath(); g.moveTo(padL, y0); g.lineTo(W - padR, y0); g.stroke(); g.globalAlpha = 1;
-    g.textAlign = 'right'; g.fillText('out', W - padR - 2, padT + 10); g.fillText('in', W - padR - 2, padT + ih - 4);
+    if (key === 's') { g.textAlign = 'right'; g.fillText('out', W - padR - 2, padT + 10); g.fillText('in', W - padR - 2, padT + ih - 4); }
   }
   // x labels: seconds ago
   g.textAlign = 'center';
@@ -1053,6 +1101,7 @@ function liveLoop(ts) {
     drawLive($('lvSpeedC'), 's', 'm/s', 0.5, 1, false, true);
     drawLive($('lvLenC'), 'l', 'cm', 50, 0);
     drawLive($('lvTempC'), 'c', '°C', 5, 0, true);
+    drawLive($('lvCurC'), 'i', '', 'auto', 0, false, true);
   }
   requestAnimationFrame(liveLoop);
 }
@@ -1790,7 +1839,7 @@ renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 
 /* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
    so compare with version.json (fetched uncached) and offer a one-tap update ---- */
-const APP_VERSION = '2026-10-29.2';
+const APP_VERSION = '2026-10-29.3';
 $('appVer').textContent = APP_VERSION;
 async function checkVersion() {
   if (location.protocol !== 'https:') return;
