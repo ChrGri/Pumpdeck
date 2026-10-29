@@ -224,6 +224,9 @@ body { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh) + 24p
 .setbar #sbOf { font-size: 1.5rem; color: var(--muted); margin-left: 2px; }
 body.has-setbar { padding-top: calc(env(safe-area-inset-top, 0px) + 88px) !important; }
 #chart { touch-action: pan-y; cursor: crosshair; }
+.settabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.settabs button { min-height: 34px; padding: 4px 12px; border-radius: 99px; font-size: .85rem; }
+.settabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .planlink { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; background: var(--panel-2); font-weight: 500; text-align: left; }
 .planlink .go { color: var(--accent); font-weight: 600; white-space: nowrap; }
 body.has-rest { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tabh) + 230px) !important; }
@@ -302,6 +305,7 @@ body.has-rest .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tab
       <div class="stat"><div class="k">Loss</div><div id="vLoss" class="v num multi">–</div><div class="u">%</div></div>
     </div>
 
+    <div id="setTabs" class="settabs" role="tablist" aria-label="Show set" hidden></div>
     <div class="chart-head">
       <span id="chartTitle" class="hint">Last rep of each side</span>
       <label class="win" for="chartMetric">Bars
@@ -1233,7 +1237,7 @@ function fmt(s) { s = Math.max(0, Math.floor(s)); const m = Math.floor(s / 60); 
 function kgOf(w) { return S.unitKg ? w : w / 2.2046; }
 function newWk() {
   return { phase: 'idle', running: false, paused: false, t0: 0, pausedMs: 0, pausedAt: 0, set: 0, setW: null,
-    reps: [], side: {}, sets: [], work: 0, ds: null, restEnd: 0, restLeft: 0, lastBeep: -1 };
+    reps: [], side: {}, sets: [], work: 0, ds: null, restEnd: 0, restLeft: 0, lastBeep: -1, saved: false, pendingEnd: null, spoken: {} };
 }
 S.wk = newWk();
 function wkElapsed() { const w = S.wk; if (!w.t0) return 0; return ((w.paused ? w.pausedAt : Date.now()) - w.t0 - w.pausedMs) / 1000; }
@@ -1427,6 +1431,7 @@ async function startWorkout() {
   if (!S.pumps.length) { toast('Connect a pump first'); return; }
   beep(660, 60, 0.05);                    // unlocks audio on this tap
   Object.assign(S.wk, newWk(), { t0: Date.now() });
+  chartSet = null;
   drawChart(); renderWkStats();
   tick = setInterval(onTick, 200);
   startReady(1);
@@ -1441,6 +1446,7 @@ function beginSet(n) {
   } else w.setW = primaryWeight();
   showBigCd(null);
   if (S.wk.phase === 'rest' || S.wk.phase === 'ready') notify(`Go! Set ${n} of ${PLAN.sets}`, `${PLAN.reps ? PLAN.reps + ' reps' : 'Open set'}${primaryWeight() != null ? ` @ ${S.target ?? primaryWeight()} ${S.unitKg ? 'kg' : 'lb'}` : ''}`, true);
+  chartSet = null;
   w.set = n; w.phase = 'set'; w.running = true; w.paused = false; w.side = {}; w.pendingEnd = null; w.spoken = {};
   dsReset();
   send(CMD.START);
@@ -1541,7 +1547,7 @@ function togglePause() {
 }
 function finishWk() {
   const w = S.wk;
-  if (w.phase === 'idle') return;
+  if (w.phase === 'idle' || w.saved) return;
   if (w.phase === 'set' && w.reps.some(r => r.set === w.set)) endSetSilently();
   clearInterval(tick);
   if (w.running) send(CMD.PAUSE);
@@ -1559,12 +1565,15 @@ function finishWk() {
       ...(two ? { repsL: w.reps.filter(r => r.side === 0).length, repsR: w.reps.filter(r => r.side === 1).length } : {}),
     };
     const h = loadHist(); h.unshift(entry); saveHist(h); renderHist();
-    toast('Workout saved');
+    toast('Workout saved. Tap New workout when you are ready.');
   } else toast('No reps recorded, nothing saved');
-  Object.assign(w, newWk());
+  // keep the finished workout on screen (chart, sets, totals) until the next Start
+  $('wkClock').textContent = fmt(wkElapsed());
+  Object.assign(w, { phase: w.reps.length ? 'done' : 'idle', running: false, paused: false, saved: true, pendingEnd: null });
+  if (!w.reps.length) Object.assign(w, newWk());
   showBigCd(null);
-  $('wkClock').textContent = '0:00';
   if (!document.hidden) clearNotify();   // keep "Workout complete" visible if you're away
+  chartSet = null;
   renderWk(); renderDS(); renderVbt(); drawChart(); renderWkStats();
 }
 function endSetSilently() {   // finishing mid-set: keep the set in the summary without starting a rest
@@ -1605,18 +1614,19 @@ function renderWk() {
   else if (w.phase === 'set') { const n = Math.max(0, ...Object.values(w.side).map(x => x.n)); chip.textContent = `Set ${w.set}/${PLAN.sets} · ${n}${PLAN.reps > 0 ? '/' + PLAN.reps : ''} reps${w.paused ? ' · paused' : ''}`; chip.className = 'pill on'; }
   else if (w.phase === 'ready') { chip.textContent = `Get ready · set ${w.next}/${PLAN.sets}${w.paused ? ' · paused' : ''}`; chip.className = 'pill demo'; }
   else if (w.phase === 'rest') { chip.textContent = `Rest · next set ${w.set + 1}/${PLAN.sets}${w.paused ? ' · paused' : ''}`; chip.className = 'pill demo'; }
-  else { chip.textContent = 'Workout complete'; chip.className = 'pill on'; }
+  else { chip.textContent = `Workout complete · ${w.sets.length} set${w.sets.length > 1 ? 's' : ''} · saved`; chip.className = 'pill on'; }
   if (w.phase === 'rest') {
     const unit = S.unitKg ? 'kg' : 'lb', nextW = (w.ds?.drops.length && DS.on) ? w.setW : primaryWeight();
     $('restNext').textContent = `Next: set ${w.set + 1} of ${PLAN.sets}${PLAN.reps ? ` · ${PLAN.reps} reps` : ''}${nextW != null ? ` @ ${nextW} ${unit}` : ''}`;
   }
   const st = $('wkStart');
-  st.textContent = w.phase === 'idle' ? 'Start' : w.paused ? 'Resume' : 'Pause';
-  st.className = w.phase === 'idle' || w.paused ? 'primary' : '';
+  st.textContent = w.phase === 'idle' ? 'Start' : w.phase === 'done' ? 'New workout' : w.paused ? 'Resume' : 'Pause';
+  st.className = w.phase === 'idle' || w.phase === 'done' || w.paused ? 'primary' : '';
   $('wkEndSet').disabled = w.phase !== 'set';
-  $('wkFinish').disabled = w.phase === 'idle';
+  $('wkFinish').disabled = w.phase === 'idle' || w.phase === 'done';
+  renderSetTabs();
 }
-$('wkStart').onclick = () => (S.wk.phase === 'idle' ? startWorkout() : togglePause());
+$('wkStart').onclick = () => (S.wk.phase === 'idle' || S.wk.phase === 'done' ? startWorkout() : togglePause());
 $('wkEndSet').onclick = () => endSet('ended by you');
 $('wkFinish').onclick = finishWk;
 $('restSkip').onclick = () => { if (S.wk.phase === 'rest') startReady(S.wk.set + 1); };
@@ -1707,7 +1717,23 @@ function renderWkStats() {
   $('wkKcal').textContent = (w.work / 4184 / 0.25).toFixed(1);
 }
 
-let chartGeo = null, chartSel = null, chartSelT = 0;
+let chartGeo = null, chartSel = null, chartSelT = 0, chartSet = null;   // chartSet: set picked in the tabs (null = current)
+function renderSetTabs() {
+  const w = S.wk, box = $('setTabs');
+  const sets = [...new Set(w.reps.map(r => r.set))].sort((a, b) => a - b);
+  box.hidden = sets.length < 2 && w.phase !== 'done';
+  if (box.hidden) return;
+  const cur = chartSet ?? w.set;
+  box.innerHTML = '';
+  for (const n of sets) {
+    const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'tab');
+    const info = w.sets.find(x => x.set === n);
+    b.textContent = `Set ${n}${info ? ` · ${info.reps}` : ''}`;
+    b.setAttribute('aria-selected', String(n === cur));
+    b.onclick = () => { chartSet = n === w.set && w.phase !== 'done' ? null : n; chartSel = null; renderSetTabs(); drawChart(); };
+    box.appendChild(b);
+  }
+}
 function drawChart() {
   const c = $('chart'), dpr = window.devicePixelRatio || 1;
   const W = c.clientWidth, H = c.clientHeight;
@@ -1718,7 +1744,7 @@ function drawChart() {
   const muted = css.getPropertyValue('--muted').trim(), acc = css.getPropertyValue('--accent').trim(), line = css.getPropertyValue('--line').trim();
   const fg = css.getPropertyValue('--fg').trim(), good = css.getPropertyValue('--good').trim(), colors = [acc, good];
   const font = px => `${px}px ${css.getPropertyValue('--font-body')}`;
-  const w = S.wk, set = w.set, unit = S.unitKg ? 'kg' : 'lb';
+  const w = S.wk, set = chartSet ?? w.set, unit = S.unitKg ? 'kg' : 'lb';
   const all = w.reps.filter(r => r.set === set);       // current set (or the one just finished)
   const M = { peak: { k: 'peak', u: 'm/s', step: 0.5, d: 1 }, mean: { k: 'mean', u: 'm/s', step: 0.5, d: 1 }, power: { k: 'power', u: 'W', step: 100, d: 0 } }[chartMetric];
   $('chartTitle').textContent = set ? `Set ${set}: ${{ peak: 'peak speed', mean: 'mean speed', power: 'power' }[chartMetric]} and load per rep` : 'Reps appear here once you start';
@@ -1781,7 +1807,7 @@ function drawChart() {
   }
   g.restore();
   // drop-set markers: dashed line before the first rep at the new weight
-  for (const d of (w.ds?.drops || [])) {
+  for (const d of (set === w.set ? (w.ds?.drops || []) : [])) {   // markers for the current set; earlier sets show the drop in the load line
     if (d.afterN + 1 < firstN || d.afterN + 1 > firstN + groups) continue;
     const x = Math.round(padL + (d.afterN + 1 - firstN) * gw) + .5;
     g.save(); g.setLineDash([3, 3]); g.strokeStyle = fg; g.globalAlpha = .5;
@@ -1978,7 +2004,7 @@ renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 
 /* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
    so compare with version.json (fetched uncached) and offer a one-tap update ---- */
-const APP_VERSION = '2026-10-29.7';
+const APP_VERSION = '2026-10-29.8';
 $('appVer').textContent = APP_VERSION;
 async function checkVersion() {
   if (location.protocol !== 'https:') return;
