@@ -58,10 +58,10 @@ The app has four pages, switched with the tab bar at the bottom:
 
 | Page | What's there |
 |---|---|
-| **Train** | Resistance, workout clock with Start / Pause / End set / Finish, per-rep metrics and the rep chart, mode |
+| **Train** | Resistance, workout clock with Start / Pause / End set / Finish, per-rep metrics and the rep chart, workout plan (sets, rest, stop at loss, notifications, drop set), mode |
 | **Live** | Reps, speed and rope out per pump, live graphs (speed, rope length, temperature) |
 | **History** | Saved workouts, JSON export |
-| **Setup** | Pumps (connect, sync, auto-connect), workout plan (sets, rest, stop at loss, notifications, drop set), pump settings and calibration, protocol log |
+| **Setup** | Pumps (connect, sync, auto-connect), pump settings and calibration, protocol log |
 
 The header shows the battery of both pumps (tap it to go to Setup). The 3-2-1 countdown and the rest timer appear on every page.
 
@@ -91,7 +91,7 @@ Chrome menu **⋮** → **Install app** / **Add to Home screen**. PumpDeck then 
   | Power saving | eco mode |
 
 ### 4. Train
-1. On **Setup → Workout plan** (or tap **Edit plan** on Train), set your plan:
+1. On **Train → Workout plan** (or tap **Edit plan** in the workout card), set your plan:
    - **Sets** and **Reps** per set. Reps 0 = open set, which you end yourself.
    - **Rest** in seconds.
    - Optionally **Stop at loss**: the set ends when a rep's mean speed drops that many percent below your best rep in the set. 20–30 % is common for velocity-based training.
@@ -107,7 +107,7 @@ Chrome menu **⋮** → **Install app** / **Add to Home screen**. PumpDeck then 
 7. After the last set the workout is saved automatically. **Finish & save** ends it early. **History** lists your workouts, and you can export it as JSON.
 
 ### 5. Auto drop set (optional)
-On **Setup → Workout plan**, tick **Auto drop set** before you start.
+On **Train → Workout plan**, tick **Auto drop set** before you start.
 1. In each set, the first rep at a weight is a settling rep. The next 2 reps set your **reference** peak speed and rope range, per side.
 2. When a later rep is slower than **Speed <** (default 75 %) or shorter than **Range <** (default 80 %) of that reference, the load on both pumps drops by **Drop by** (default 20 %). The phone vibrates.
 3. A new reference is measured at the lighter weight. This repeats up to **Max drops** times per set (default 3).
