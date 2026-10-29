@@ -547,6 +547,19 @@ const speedToMs  = n => n * 35 * Math.PI / 300000 * ropeCal;
 // The pump reports speed as a magnitude. Direction comes from the rope length:
 // rope going out (pull) = positive, rope coming back in = negative.
 // If a firmware ever sends a signed value (≥ 0x8000), that sign wins.
+// Direction of the rope for this sample. Two sources:
+//  1. the rope length (always available, but in ~3 cm steps, so it lags at turnarounds), and
+//  2. the motor current, once this pump has shown that its sign follows the rope direction
+//     (≥ 60 checked samples, ≥ 90 % agreement; see trackCurrent). On the real pumps the current
+//     is the battery current: + while the rope is pulled out (the motor brakes and recharges),
+//     − while it pulls the rope back in, about −50 at standstill. Its sign changes instantly.
+// Small currents (holding still, idle draw) fall back to the rope length.
+function curSignOf(p) {
+  const b = p.cur?.buf || [];
+  if (b.length < 60) return 0;
+  const same = b.filter(x => x > 0).length / b.length;
+  return same >= 0.9 ? 1 : same <= 0.1 ? -1 : 0;
+}
 function trackDir(p) {
   const L = p.status.length;
   if (p.lastLen != null) {
@@ -555,6 +568,11 @@ function trackDir(p) {
     if (dl) p.dir = dl > 0 ? 1 : -1;
   }
   p.lastLen = L;
+  const k = curSignOf(p), I = p.status.current;
+  p.dirFromCurrent = false;
+  if (k && Math.abs(I) >= Math.max(150, (p.imax || 0) * 0.12)) {
+    p.dir = Math.sign(I) * k; p.dirFromCurrent = true;
+  }
   if (p.status.speed === 0) p.dir = p.dir || 1;
 }
 function signedMs(p) {
@@ -890,6 +908,7 @@ function onStatus(p) {
     if (!modeTouched) { S.mode = st.mode || 1; S.tune.ecc = st.ecc; S.tune.conc = st.conc; S.tune.chain = st.chain; renderModes(); }
   }
   trackDir(p);
+  trackCurrent(p);   // once per status frame of this pump
   const all = S.pumps.filter(x => x.status);
   const inWk = S.wk.phase !== 'idle';
   const repsOf = x => inWk ? (S.wk.side[x.id]?.n || 0) : x.status.reps;
@@ -992,14 +1011,14 @@ function renderCurAgree() {
     const same = b.filter(x => x > 0).length / b.length * 100;
     const best = Math.max(same, 100 - same);
     const rel = same >= 50 ? 'same sign as' : 'opposite sign to';
-    return `${name}${Math.round(best)}% ${rel} rope direction (${b.length} samples)${best >= 90 ? ' ✓ usable' : best < 70 ? ' ✗ not a direction signal' : ''}`;
+    const used = curSignOf(p) ? ' → speed sign now comes from the current' : '';
+    return `${name}${Math.round(best)}% ${rel} rope direction (${b.length} samples)${best >= 90 ? ' ✓ usable' : best < 70 ? ' ✗ not a direction signal' : ''}${used}`;
   });
   el.textContent = parts.length ? parts.join(' · ') : 'Connect a pump and pull a few reps: the app checks whether the sign of the motor current follows the rope direction.';
 }
 $('curAgreeReset').onclick = () => { for (const p of S.pumps) p.cur = { buf: [] }; renderCurAgree(); };
 
 function pushLive(all) {
-  for (const p of all) trackCurrent(p);
   const now = performance.now();
   if (now - lastLiveT < 40) return;            // one sample per ~40 ms is plenty, even with two pumps
   lastLiveT = now;
@@ -1839,7 +1858,7 @@ renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 
 /* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
    so compare with version.json (fetched uncached) and offer a one-tap update ---- */
-const APP_VERSION = '2026-10-29.3';
+const APP_VERSION = '2026-10-29.4';
 $('appVer').textContent = APP_VERSION;
 async function checkVersion() {
   if (location.protocol !== 'https:') return;
