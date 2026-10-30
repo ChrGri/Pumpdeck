@@ -143,7 +143,7 @@ Under **Protocol log**: every Bluetooth packet, plus a field for sending your ow
 - This is an unofficial project, not affiliated with the manufacturer. Use at your own risk.
 
 ## For developers
-The whole app is one file: [`index.html`](index.html). The decoded Bluetooth protocol is in [PROTOCOL.md](PROTOCOL.md).
+The whole app is one file: [`index.html`](index.html).
 
 ---
 
