@@ -334,6 +334,7 @@ body.has-rest .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tab
         <label for="pRest">Rest<span><input id="pRest" type="number" inputmode="numeric" min="0" max="600" step="15" value="90"> s</span></label>
         <label for="pVl">Stop at loss<span><input id="pVl" type="number" inputmode="numeric" min="0" max="60" step="5" value="0"> %</span></label>
       </div>
+      <label for="pUnload" class="notify"><input id="pUnload" type="checkbox"> Unload during rest (minimum load while resting, restored at 3-2-1)</label>
       <label for="pVoice" class="notify"><input id="pVoice" type="checkbox"> Voice countdown (10 / 5 / 3-2-1 to go, 3-2-1 go)</label>
       <label for="pNotify" class="notify"><input id="pNotify" type="checkbox"> Rest timer as notification</label>
       <div class="notify-row"><button id="pNotifyTest" type="button">Test notification</button><span id="pNotifyDiag" class="hint"></span></div>
@@ -989,7 +990,7 @@ function syncPumps() {
           const v = src.status[f.key];
           log('tx', `sync ${f.key} → ${dst.name}: ${v}`);
           dst.write(frame(f.cmd, f.data(v)));
-          if (f.key === 'weight') S.target = v;
+          if (f.key === 'weight' && !(S.wk.phase === 'rest' && S.wk.unloaded)) S.target = v;
         }
         holdSync(1200);
       }
@@ -1179,6 +1180,9 @@ let wTimer;
 function setWeight(v) {
   const [mn, mx] = lim();
   S.target = Math.min(mx, Math.max(mn, Math.round(v)));
+  if (S.wk.phase === 'rest' && S.wk.unloaded) {   // resting unloaded: this is the load for the next set, sent at the 3-2-1
+    S.wk.restManualW = S.target; renderLoad(); renderWk(); return;
+  }
   renderLoad();
   clearTimeout(wTimer);
   wTimer = setTimeout(() => send(CMD.WEIGHT, u16(S.target)), 250); // app throttles to ≥500 ms; we debounce
@@ -1228,7 +1232,7 @@ $('tSlider').onchange = () => { modeTouched = true; const m = MODES.find(x => x.
 /* ================= Workout: sets, rest, VBT ================= */
 // Phases: idle → set → rest → set … → done (auto-saved). w.running = "counting reps right now".
 const PK = 'pumpdeck.plan.v1';
-const PLAN = { sets: 3, reps: 10, rest: 90, vl: 0, voice: true };
+const PLAN = { sets: 3, reps: 10, rest: 90, vl: 0, voice: true, unload: true };
 try { Object.assign(PLAN, JSON.parse(localStorage.getItem(PK)) || {}); } catch (_) {}
 function savePlan() { try { localStorage.setItem(PK, JSON.stringify(PLAN)); } catch (_) {} }
 let chartMetric = 'peak';
@@ -1441,11 +1445,13 @@ async function startWorkout() {
 }
 function beginSet(n) {
   const w = S.wk;
-  // after a drop set, the next set starts again from the set's original weight
-  if (w.setW != null && w.ds?.drops.length && DS.on) {
+  restoreAfterRest();   // safety net (e.g. very short rests); sets w.restoreW when it restored a load
+  // after a drop set, the next set starts again from the set's original weight (unless a load was just restored)
+  if (w.restoreW == null && w.setW != null && w.ds?.drops.length && DS.on) {
     for (const p of S.pumps) p.write(frame(CMD.WEIGHT, u16(w.setW))).catch(() => {});
     holdSync(2500); S.target = w.setW; renderLoad();
-  } else w.setW = primaryWeight();
+  } else w.setW = w.restoreW ?? S.target ?? primaryWeight();
+  w.restoreW = null;
   showBigCd(null);
   if (S.wk.phase === 'rest' || S.wk.phase === 'ready') notify(`Go! Set ${n} of ${PLAN.sets}`, `${PLAN.reps ? PLAN.reps + ' reps' : 'Open set'}${primaryWeight() != null ? ` @ ${S.target ?? primaryWeight()} ${S.unitKg ? 'kg' : 'lb'}` : ''}`, true);
   chartSet = null;
@@ -1478,14 +1484,54 @@ function endSet(reason) {
     return;
   }
   if (PLAN.rest <= 3) { startReady(w.set + 1); return; }
-  w.phase = 'rest'; w.restEnd = Date.now() + PLAN.rest * 1000; w.lastBeep = -1;
+  w.phase = 'rest'; w.restEnd = Date.now() + PLAN.rest * 1000; w.lastBeep = -1; w.unloaded = false;
+  setTimeout(unloadForRest, 1500);
   toast(`Set ${w.set} done (${reason}). Rest ${PLAN.rest} s`);
   renderWk(); onTick(); restNotify(true);
 }
 // 3-2-1 "get ready" before every set: on Start, after "Start next set", and as the last
 // 3 seconds of every rest. Shown full screen so it's visible wherever you've scrolled.
+/* ---- auto-unload: minimum load during rests ----
+   A rope resting fully retracted under full load can make the motor buzz against its end stop.
+   1.5 s after a set ends (rope back in), every pump goes to its minimum load; the 3-2-1 before
+   the next set restores the load (or the set's starting load after a drop set). A load you set
+   by hand during the rest is kept. */
+function unloadForRest() {
+  const w = S.wk;
+  if (!PLAN.unload || w.phase !== 'rest' || w.unloaded) return;
+  const [mn] = lim();
+  w.unloadFrom = {};
+  for (const p of S.pumps) {
+    if (!p.status) continue;
+    w.unloadFrom[p.id] = p.status.weight;
+    if (p.status.weight > mn) p.write(frame(CMD.WEIGHT, u16(mn))).catch(() => {});
+  }
+  w.unloaded = true; w.restManualW = null;
+  holdSync(2500);
+  renderLoad(); renderWk();   // the big number keeps showing the next set's load
+  log('tx', `unload during rest → ${mn} ${S.unitKg ? 'kg' : 'lb'}`);
+}
+function restoreAfterRest() {
+  const w = S.wk;
+  if (!w.unloaded) return;
+  const dropRestore = w.ds?.drops.length && DS.on ? w.setW : null;
+  let first = null;
+  for (const p of S.pumps) {
+    const t = w.restManualW ?? dropRestore ?? w.unloadFrom?.[p.id] ?? w.setW;
+    if (t == null) continue;
+    if (first == null) first = t;
+    p.write(frame(CMD.WEIGHT, u16(t))).catch(() => {});
+  }
+  holdSync(2500);
+  if (first != null) { S.target = first; w.restoreW = first; renderLoad(); }
+  w.unloaded = false; w.unloadFrom = null; w.restManualW = null;
+}
+$('pUnload').checked = PLAN.unload !== false;
+$('pUnload').onchange = e => { PLAN.unload = e.target.checked; savePlan(); };
+
 function startReady(n) {
   const w = S.wk;
+  restoreAfterRest();                     // load back on before the countdown ends
   w.phase = 'ready'; w.next = n; w.restEnd = Date.now() + 3000; w.lastBeep = -1;
   renderWk(); renderVbt(); onTick();
 }
@@ -1528,6 +1574,7 @@ function onTick() {
   const left = Math.ceil((w.restEnd - Date.now()) / 1000);
   if (w.phase === 'rest') { $('restLeft').textContent = fmt(left); restNotify(false); }
   if (left <= 3 && left >= 1) {
+    if (w.phase === 'rest' && w.unloaded) restoreAfterRest();   // load back on as the 3-2-1 starts
     showBigCd(left);
     if (left !== w.lastBeep) { w.lastBeep = left; if (!say(String(left))) beep(880, 90); try { navigator.vibrate?.(60); } catch (_) {} }
   }
@@ -1550,6 +1597,7 @@ function togglePause() {
 function finishWk() {
   const w = S.wk;
   if (w.phase === 'idle' || w.saved) return;
+  restoreAfterRest();   // finishing during a rest: put the working load back
   if (w.phase === 'set' && w.reps.some(r => r.set === w.set)) endSetSilently();
   clearInterval(tick);
   if (w.running) send(CMD.PAUSE);
@@ -1619,7 +1667,8 @@ function renderWk() {
   else { chip.textContent = `Workout complete · ${w.sets.length} set${w.sets.length > 1 ? 's' : ''} · saved`; chip.className = 'pill on'; }
   if (w.phase === 'rest') {
     const unit = S.unitKg ? 'kg' : 'lb', nextW = (w.ds?.drops.length && DS.on) ? w.setW : primaryWeight();
-    $('restNext').textContent = `Next: set ${w.set + 1} of ${PLAN.sets}${PLAN.reps ? ` · ${PLAN.reps} reps` : ''}${nextW != null ? ` @ ${nextW} ${unit}` : ''}`;
+    const restoreW = w.unloaded ? (w.restManualW ?? ((w.ds?.drops.length && DS.on) ? w.setW : Object.values(w.unloadFrom || {})[0])) : nextW;
+    $('restNext').textContent = `Next: set ${w.set + 1} of ${PLAN.sets}${PLAN.reps ? ` · ${PLAN.reps} reps` : ''}${restoreW != null ? ` @ ${restoreW} ${unit}` : ''}${w.unloaded ? ` · resting at ${lim()[0]} ${unit}` : ''}`;
   }
   const st = $('wkStart');
   st.textContent = w.phase === 'idle' ? 'Start' : w.phase === 'done' ? 'New workout' : w.paused ? 'Resume' : 'Pause';
@@ -2006,7 +2055,7 @@ renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 
 /* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
    so compare with version.json (fetched uncached) and offer a one-tap update ---- */
-const APP_VERSION = '2026-10-29.9';
+const APP_VERSION = '2026-10-30.1';
 $('appVer').textContent = APP_VERSION;
 async function checkVersion() {
   if (location.protocol !== 'https:') return;
