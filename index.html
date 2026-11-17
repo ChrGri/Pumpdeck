@@ -857,6 +857,37 @@ function disconnect(p) {
   try { p.dev.gatt.disconnect(); } catch (_) { dropPump(p, 'removed'); }
 }
 
+// Identify: which physical pump is Left / Right? The pumps have no app-addressable
+// LED or sound command (checked the protocol + both official apps + the firmware), but
+// a pump plays its connection tone when a central connects. So "Identify" briefly drops
+// and reconnects just this one pump: it beeps, which you can hear even at rest without
+// pulling. Orange = left, green = right stays the on-screen labelling.
+const identifying = new Set();
+async function identify(p) {
+  if (p.demo) { toast('Demo pump makes no sound'); return; }
+  if (S.wk.phase !== 'idle' && S.wk.phase !== 'done') { toast('Finish the workout before identifying a pump'); return; }
+  const dev = p.dev;
+  if (!dev || identifying.has(dev.id)) return;
+  identifying.add(dev.id);
+  const side = S.pumps.length > 1 ? (knownIndex(p) ? 'right' : 'left') : 'the';
+  toast(`Identifying ${side} pump — listen for the beep…`);
+  log('rx', `identify ${p.name}: reconnecting to trigger its tone`);
+  try {
+    manualDrop.add(dev.id);                       // stop auto-connect racing us
+    try { dev.gatt.disconnect(); } catch (_) {}
+    await new Promise(r => setTimeout(r, 900));    // let it fully drop (and chime off)
+    manualDrop.delete(dev.id);
+    const ok = await connectDevice(dev, true);     // reconnect → pump plays its connect tone
+    toast(ok ? `${side.charAt(0).toUpperCase() + side.slice(1)} pump should have beeped` : 'Identify failed — switch the pump on and retry');
+  } catch (e) {
+    manualDrop.delete(dev.id);
+    toast('Identify failed: ' + e.message);
+  } finally {
+    identifying.delete(dev.id);
+    renderAuto();
+  }
+}
+
 /* ================= Demo pump (feeds fake frames through the same parser) ================= */
 function connectDemo() {
   if (S.pumps.length >= 2) { toast('Two pumps are already connected'); return; }
@@ -1967,8 +1998,13 @@ function renderPumps(statusOnly) {
   S.pumps.forEach((p, i) => {
     const el = document.createElement('div'); el.className = 'pump';
     el.innerHTML = `<div class="name">${S.pumps.length > 1 ? `<span class="side s${i}">${i ? 'Right' : 'Left'}</span>` : p.name}</div><div class="batt num">${p.status ? p.status.battery + '%' : '–'}</div><div class="meta">${meta(p)}</div>`;
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Disconnect'; b.style.gridColumn = '1 / -1';
-    b.onclick = () => disconnect(p); el.appendChild(b);
+    const row = document.createElement('div'); row.style.gridColumn = '1 / -1'; row.style.display = 'flex'; row.style.gap = '8px';
+    const idb = document.createElement('button'); idb.type = 'button'; idb.textContent = S.pumps.length > 1 ? `Identify ${i ? 'right' : 'left'}` : 'Identify'; idb.style.flex = '1';
+    idb.title = 'Briefly reconnects this pump so it beeps — tells you which physical unit it is';
+    idb.onclick = () => identify(p); row.appendChild(idb);
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Disconnect'; b.style.flex = '1';
+    b.onclick = () => disconnect(p); row.appendChild(b);
+    el.appendChild(row);
     box.appendChild(el);
   });
 }
@@ -2055,7 +2091,7 @@ renderAuto(); scheduleAuto(400); renderDS(); renderWk(); renderVbt();
 
 /* ---- version check: GitHub Pages and the browser may hand out a cached copy for a few minutes,
    so compare with version.json (fetched uncached) and offer a one-tap update ---- */
-const APP_VERSION = '2026-10-30.1';
+const APP_VERSION = '2026-11-17.1';
 $('appVer').textContent = APP_VERSION;
 async function checkVersion() {
   if (location.protocol !== 'https:') return;
